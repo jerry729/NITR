@@ -232,6 +232,8 @@ Notes:
 | 022 thermostat-sensor-decoupling | D6 Dependency Control | micro |
 | 023 validator-global-mutation | D9 Side-Effect Isolation | micro |
 | 024 metric-recorder-buffered-flush | D5 Interface and Substitutability Discipline | micro |
+| 025 session-alert-responsibilities | D3 Responsibility Decomposition | micro |
+
 
 ---
 
