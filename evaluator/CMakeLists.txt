@@ -12,6 +12,12 @@ find_program(BASH_PROGRAM bash)
 option(CASE015_ENABLE_VISIBLE_CHECKS "Run visible structural checks via CTest" ON)
 option(CASE015_ENABLE_HIDDEN_EVALUATOR "Enable hidden tests and hidden checks" OFF)
 
+if(DEFINED ENV{PYTHONPATH} AND NOT "$ENV{PYTHONPATH}" STREQUAL "")
+  set(NITR_EVALUATOR_PYTHONPATH "${CMAKE_SOURCE_DIR}:$ENV{PYTHONPATH}")
+else()
+  set(NITR_EVALUATOR_PYTHONPATH "${CMAKE_SOURCE_DIR}")
+endif()
+
 function(nitr_case_source_dir out_var case_dir)
   set(${out_var} ${CMAKE_SOURCE_DIR}/cases/${case_dir} PARENT_SCOPE)
 endfunction()
@@ -32,18 +38,34 @@ function(nitr_add_plain_test test_name case_target test_source)
   add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
 
+function(nitr_add_python_test test_name script_path)
+  add_test(
+    NAME ${test_name}
+    COMMAND ${CMAKE_COMMAND} -E env
+            PYTHONPATH=${NITR_EVALUATOR_PYTHONPATH}
+            ${Python3_EXECUTABLE} ${script_path} ${ARGN}
+  )
+endfunction()
+
 function(nitr_register_case_001)
+  nitr_case_source_dir(CASE_DIR 001.add-no-callsite-spread)
   nitr_case_evaluator_dir(EVAL_DIR 001.add-no-callsite-spread)
   nitr_add_gtest(add_tests add_lib ${EVAL_DIR}/tests/test_add.cc)
+  nitr_add_python_test(
+    case001_structural_check
+    ${EVAL_DIR}/checks/check.py
+    --case_root ${CASE_DIR}
+  )
 endfunction()
 
 function(nitr_register_case_002)
   nitr_case_source_dir(CASE_DIR 002.refactor-and-reuse)
   nitr_case_evaluator_dir(EVAL_DIR 002.refactor-and-reuse)
   nitr_add_gtest(geometry_tests mvg_lib ${EVAL_DIR}/tests/test_geometry.cc)
-  add_test(
-    NAME geometry_structure_check
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/check_geometry_structure.py ${CASE_DIR}
+  nitr_add_python_test(
+    geometry_structure_check
+    ${EVAL_DIR}/checks/check_geometry_structure.py
+    --case_root ${CASE_DIR}
   )
 endfunction()
 
@@ -82,74 +104,105 @@ function(nitr_register_case_004)
   )
   target_link_libraries(cv_srp_tests PRIVATE cv_srp_lib gtest_main)
   add_test(NAME cv_srp_tests COMMAND cv_srp_tests)
+  nitr_add_python_test(cv_srp_structural_check ${EVAL_DIR}/checks/check.py)
 endfunction()
 
 function(nitr_register_case_005)
+  nitr_case_source_dir(CASE_DIR 005.pricing-ocp)
   nitr_case_evaluator_dir(EVAL_DIR 005.pricing-ocp)
   nitr_add_gtest(pricing_ocp_tests pricing_ocp_lib ${EVAL_DIR}/tests/test_pricing.cc)
+  target_sources(pricing_ocp_tests PRIVATE
+    ${EVAL_DIR}/checks/inject/injected_rule.cc
+  )
+  nitr_add_python_test(
+    pricing_ocp_structural_check
+    ${EVAL_DIR}/checks/check.py
+    --case_dir ${CASE_DIR}
+  )
 endfunction()
 
 function(nitr_register_case_006)
   nitr_case_evaluator_dir(EVAL_DIR 006.gs-isp)
   nitr_add_plain_test(public_smoke_test case006_lib ${EVAL_DIR}/tests/public_smoke_test.cc)
+  nitr_add_python_test(case006_structural_check ${EVAL_DIR}/checks/check_data_isp.py)
 endfunction()
 
 function(nitr_register_case_007)
   nitr_case_evaluator_dir(EVAL_DIR 007.ml-lsp-multistep)
   nitr_add_plain_test(case007_public_tests case007_core ${EVAL_DIR}/tests/test_public.cc)
   nitr_add_plain_test(case007_hidden_tests case007_core ${EVAL_DIR}/tests/test_hidden.cc)
-  add_test(
-    NAME case007_constraint_checks
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/verify_constraints.py
+  nitr_add_python_test(
+    case007_constraint_checks
+    ${EVAL_DIR}/checks/verify_constraints.py
   )
 endfunction()
 
 function(nitr_register_case_008)
+  nitr_case_source_dir(CASE_DIR 008.map-dip)
   nitr_case_evaluator_dir(EVAL_DIR 008.map-dip)
   nitr_add_plain_test(test_basic case008_lib ${EVAL_DIR}/tests/test_basic.cc)
-  add_test(NAME case008_basic COMMAND test_basic)
+  add_executable(case008_plugin_reverse_test
+    ${EVAL_DIR}/tests/test_plugin_reverse.cc
+    ${EVAL_DIR}/checks/reverse_plugin.cc
+  )
+  target_link_libraries(case008_plugin_reverse_test PRIVATE case008_lib)
+  add_test(NAME case008_plugin_reverse_test COMMAND case008_plugin_reverse_test)
+  nitr_add_python_test(
+    case008_structural_check
+    ${EVAL_DIR}/checks/structural_check.py
+    ${CASE_DIR}
+  )
 endfunction()
 
 function(nitr_register_case_009)
   nitr_case_evaluator_dir(EVAL_DIR 009.session-expiry-testability)
   nitr_add_plain_test(session_manager_test case009_lib ${EVAL_DIR}/tests/session_manager_test.cc)
-  add_test(
-    NAME maintainability_check_case009
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/maintainability_check.py
+  nitr_add_python_test(
+    maintainability_check_case009
+    ${EVAL_DIR}/checks/maintainability_check.py
   )
 endfunction()
 
 function(nitr_register_case_010)
   nitr_case_evaluator_dir(EVAL_DIR 010.logging-side-effects)
   nitr_add_plain_test(loan_review_test case010_lib ${EVAL_DIR}/tests/loan_review_test.cc)
-  add_test(
-    NAME maintainability_check_case010
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/maintainability_check.py
+  nitr_add_python_test(
+    maintainability_check_case010
+    ${EVAL_DIR}/checks/maintainability_check.py
   )
 endfunction()
 
 function(nitr_register_case_011)
   nitr_case_evaluator_dir(EVAL_DIR 011.config-sprawl)
   nitr_add_plain_test(case011_tests case011_lib ${EVAL_DIR}/tests/test_config_sprawl.cc)
+  nitr_add_python_test(
+    case011_structural_check
+    ${EVAL_DIR}/checks/check_no_compact_parameter_sprawl.py
+  )
 endfunction()
 
 function(nitr_register_case_012)
   nitr_case_evaluator_dir(EVAL_DIR 012.cache-lifecycle)
   nitr_add_plain_test(report_cache_test case012_lib ${EVAL_DIR}/tests/report_cache_test.cc)
-  add_test(
-    NAME maintainability_check_case012
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/maintainability_check.py
+  nitr_add_python_test(
+    maintainability_check_case012
+    ${EVAL_DIR}/checks/maintainability_check.py
   )
 endfunction()
 
 function(nitr_register_case_013)
   nitr_case_evaluator_dir(EVAL_DIR 013.stable-public-api)
   nitr_add_plain_test(test_catalog case013_lib ${EVAL_DIR}/tests/test_catalog.cc)
+  nitr_add_python_test(
+    case013_api_stability_check
+    ${EVAL_DIR}/checks/check_api_stability.py
+  )
 endfunction()
 
 function(nitr_register_case_014)
   nitr_case_evaluator_dir(EVAL_DIR 014.report-export-ocp)
   nitr_add_plain_test(test_report_export case014_lib ${EVAL_DIR}/tests/test_report_export.cc)
+  nitr_add_python_test(case014_structural_check ${EVAL_DIR}/checks/check_structure.py)
 endfunction()
 
 function(nitr_add_case015_test test_name test_source)
@@ -164,9 +217,7 @@ function(nitr_add_case015_test test_name test_source)
 endfunction()
 
 function(nitr_add_case015_python_test test_name script_path)
-  add_test(NAME ${test_name}
-    COMMAND ${Python3_EXECUTABLE} ${script_path} ${ARGN}
-  )
+  nitr_add_python_test(${test_name} ${script_path} ${ARGN})
   set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endfunction()
 
@@ -256,15 +307,15 @@ function(nitr_register_case_016)
   add_case016_test(execution_plan_unseen_test ${EVAL_DIR}/tests/execution_plan_unseen_test.cc)
   add_case016_test(runner_respects_segmentation_test ${EVAL_DIR}/tests/runner_respects_segmentation_test.cc)
 
-  add_test(
-    NAME require_planner_usage_check
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/require_planner_usage.py
+  nitr_add_python_test(
+    require_planner_usage_check
+    ${EVAL_DIR}/checks/require_planner_usage.py
   )
   set_tests_properties(require_planner_usage_check PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-  add_test(
-    NAME no_step_index_special_case_check
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/no_step_index_special_case.py
+  nitr_add_python_test(
+    no_step_index_special_case_check
+    ${EVAL_DIR}/checks/no_step_index_special_case.py
   )
   set_tests_properties(no_step_index_special_case_check PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endfunction()
@@ -272,9 +323,9 @@ endfunction()
 function(nitr_register_case_017)
   nitr_case_evaluator_dir(EVAL_DIR 017.active-snapshot-lifecycle)
   nitr_add_plain_test(case017_lifecycle_tests case017_lib ${EVAL_DIR}/tests/test_lifecycle.cc)
-  add_test(
-    NAME case017_structure_checks
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/check_structure.py
+  nitr_add_python_test(
+    case017_structure_checks
+    ${EVAL_DIR}/checks/check_structure.py
   )
   set_tests_properties(case017_structure_checks PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endfunction()
@@ -282,9 +333,9 @@ endfunction()
 function(nitr_register_case_018)
   nitr_case_evaluator_dir(EVAL_DIR 018.seeded-selection-testability)
   nitr_add_plain_test(case018_evaluator_tests case018_core ${EVAL_DIR}/tests/case018_evaluator_test.cc)
-  add_test(
-    NAME case018_structural_checks
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/run_evaluator.py
+  nitr_add_python_test(
+    case018_structural_checks
+    ${EVAL_DIR}/checks/run_evaluator.py
   )
   set_tests_properties(case018_structural_checks PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endfunction()
@@ -307,18 +358,16 @@ function(nitr_register_case_019)
   target_include_directories(case019_inspect_compare_test PRIVATE ${EVAL_DIR}/tests)
   add_test(NAME case019_inspect_compare_test COMMAND case019_inspect_compare_test)
 
-  add_test(
-    NAME case019_structural_check
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/structural_check.py ${CASE_DIR}
+  nitr_add_python_test(
+    case019_structural_check
+    ${EVAL_DIR}/checks/structural_check.py
+    --case_root ${CASE_DIR}
   )
 endfunction()
 
 function(nitr_register_case_020)
   nitr_case_evaluator_dir(EVAL_DIR 020.handover-packet-ownership-boundary)
-  add_test(
-    NAME case020_evaluator
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/run_evaluator.py
-  )
+  nitr_add_python_test(case020_evaluator ${EVAL_DIR}/checks/run_evaluator.py)
   set_tests_properties(case020_evaluator PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endfunction()
 
@@ -332,6 +381,16 @@ function(nitr_register_case_021)
   target_link_libraries(case021_evaluator_tests PRIVATE case021_lib)
 
   add_test(NAME case021_functional_tests COMMAND case021_evaluator_tests)
+  nitr_add_python_test(
+    case021_no_duplicate_value_validation
+    ${EVAL_DIR}/checks/check_no_duplicate_value_validation.py
+  )
+  set_tests_properties(case021_no_duplicate_value_validation PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  nitr_add_python_test(
+    case021_no_shadow_tables
+    ${EVAL_DIR}/checks/check_no_shadow_tables.py
+  )
+  set_tests_properties(case021_no_shadow_tables PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endfunction()
 
 function(nitr_register_case_022)
@@ -344,14 +403,16 @@ function(nitr_register_case_022)
     ${EVAL_DIR}/tests/test_thermostat.cc
   )
   
-  add_test(
-    NAME case022_functional_tests
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/tests/test_functional.py $<TARGET_FILE:case022_app>
+  nitr_add_python_test(
+    case022_functional_tests
+    ${EVAL_DIR}/tests/test_functional.py
+    $<TARGET_FILE:case022_app>
   )
   
-  add_test(
-    NAME case022_dependency_check
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/check_dependency.py ${CASE_DIR}
+  nitr_add_python_test(
+    case022_dependency_check
+    ${EVAL_DIR}/checks/check_dependency.py
+    --case_root ${CASE_DIR}
   )
 endfunction()
 
@@ -365,14 +426,16 @@ function(nitr_register_case_023)
     ${EVAL_DIR}/tests/validator_test.cc
   )
 
-  add_test(
-    NAME case023_functional_tests
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/tests/test_functional.py $<TARGET_FILE:case023_app>
+  nitr_add_python_test(
+    case023_functional_tests
+    ${EVAL_DIR}/tests/test_functional.py
+    $<TARGET_FILE:case023_app>
   )
 
-  add_test(
-    NAME case023_side_effect_check
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/check_side_effect.py ${CASE_DIR}
+  nitr_add_python_test(
+    case023_side_effect_check
+    ${EVAL_DIR}/checks/check_side_effect.py
+    --case_root ${CASE_DIR}
   )
 endfunction()
 
@@ -385,9 +448,29 @@ function(nitr_register_case_024)
     ${EVAL_DIR}/tests/test_recorder_lifecycle.cc
   )
 
-  add_test(
-    NAME case024_substitutability_check
-    COMMAND ${Python3_EXECUTABLE} ${EVAL_DIR}/checks/check_substitutability.py
+  nitr_add_python_test(
+    case024_substitutability_check
+    ${EVAL_DIR}/checks/check_substitutability.py
+  )
+endfunction()
+
+function(nitr_register_case_025)
+
+  nitr_case_source_dir(CASE_DIR 025.session-alert-responsibilities)
+  nitr_case_evaluator_dir(EVAL_DIR 025.session-alert-responsibilities)
+
+  # Functional tests: range / drift / leak detection, ordering, determinism.
+  nitr_add_plain_test(
+    case025_monitor_tests
+    case_025_lib
+    ${EVAL_DIR}/tests/test_monitor.cpp
+  )
+
+  # Structural check: each alert family must be owned by its own unit (D3).
+  nitr_add_python_test(
+    case025_decomposition_check
+    ${EVAL_DIR}/checks/check_decomposition.py
+    --case_root ${CASE_DIR}
   )
 endfunction()
 

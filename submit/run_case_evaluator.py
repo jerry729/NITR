@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -9,8 +10,14 @@ import tempfile
 import time
 from pathlib import Path
 
+from docker_runtime import (
+    add_common_runtime_args,
+    current_default_dockerfile,
+    exit_after_docker_run,
+)
 
-def run_command(cmd, cwd, stream_output=False, timeout_seconds=None):
+
+def run_command(cmd, cwd, stream_output=False, timeout_seconds=None, env=None):
     """Run a subprocess and return a normalized result payload for reports."""
     print(f"[*] Running: {' '.join(cmd)}")
     if not stream_output:
@@ -22,6 +29,7 @@ def run_command(cmd, cwd, stream_output=False, timeout_seconds=None):
                 text=True,
                 check=False,
                 timeout=timeout_seconds,
+                env=env,
             )
             return {
                 "cmd": cmd,
@@ -37,7 +45,8 @@ def run_command(cmd, cwd, stream_output=False, timeout_seconds=None):
                 "cwd": str(cwd),
                 "exit_code": 124,
                 "stdout": exc.stdout or "",
-                "stderr": (exc.stderr or "") + f"\nTimed out after {timeout_seconds} seconds.",
+                "stderr": (exc.stderr or "")
+                + f"\nTimed out after {timeout_seconds} seconds.",
                 "timed_out": True,
             }
 
@@ -47,6 +56,7 @@ def run_command(cmd, cwd, stream_output=False, timeout_seconds=None):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        env=env,
     )
     combined_output = []
     assert process.stdout is not None
@@ -80,7 +90,6 @@ def run_command(cmd, cwd, stream_output=False, timeout_seconds=None):
         "timed_out": timed_out,
     }
 
-
 def resolve_cases_root(input_dir: Path) -> Path:
     """Accept either the repo root or a direct cases directory and normalize to cases/."""
     repo_cases_dir = input_dir / "cases"
@@ -95,11 +104,14 @@ def find_case_slug(cases_root: Path, case_id: str) -> str:
     """Resolve a zero-padded case id to its single matching directory name."""
     prefix = f"{case_id}."
     matches = sorted(
-        entry.name for entry in cases_root.iterdir()
+        entry.name
+        for entry in cases_root.iterdir()
         if entry.is_dir() and entry.name.startswith(prefix)
     )
     if len(matches) != 1:
-        raise FileNotFoundError(f"Expected exactly one case for {case_id}, found: {matches}")
+        raise FileNotFoundError(
+            f"Expected exactly one case for {case_id}, found: {matches}"
+        )
     return matches[0]
 
 
@@ -131,7 +143,9 @@ def replace_case_dir(workspace_root: Path, case_slug: str, generated_case_dir: P
     shutil.copytree(generated_case_dir, target_case_dir)
 
 
-def replace_evaluator_dir(workspace_root: Path, case_slug: str, generated_evaluator_dir: Path):
+def replace_evaluator_dir(
+    workspace_root: Path, case_slug: str, generated_evaluator_dir: Path
+):
     """Swap in a generated evaluator when the submission produced one."""
     target_evaluator_dir = workspace_root / "evaluator" / case_slug
     if target_evaluator_dir.exists():
@@ -139,7 +153,9 @@ def replace_evaluator_dir(workspace_root: Path, case_slug: str, generated_evalua
     shutil.copytree(generated_evaluator_dir, target_evaluator_dir)
 
 
-def ensure_generated_evaluator(repo_root: Path, generated_root: Path, case_slug: str) -> Path:
+def ensure_generated_evaluator(
+    repo_root: Path, generated_root: Path, case_slug: str
+) -> Path:
     """Populate a missing generated evaluator from the repo baseline."""
     source_evaluator_dir = repo_root / "evaluator" / case_slug
     target_evaluator_dir = generated_root / "evaluator" / case_slug
@@ -150,7 +166,9 @@ def ensure_generated_evaluator(repo_root: Path, generated_root: Path, case_slug:
     return target_evaluator_dir
 
 
-def refresh_generated_evaluator(repo_root: Path, generated_root: Path, case_slug: str) -> Path:
+def refresh_generated_evaluator(
+    repo_root: Path, generated_root: Path, case_slug: str
+) -> Path:
     """Overwrite the generated evaluator with a fresh copy from the repo baseline."""
     source_evaluator_dir = repo_root / "evaluator" / case_slug
     target_evaluator_dir = generated_root / "evaluator" / case_slug
@@ -166,7 +184,9 @@ def discover_structural_checks(checks_dir: Path):
     if not checks_dir.is_dir():
         return []
 
-    python_scripts = sorted(path for path in checks_dir.iterdir() if path.is_file() and path.suffix == ".py")
+    python_scripts = sorted(
+        path for path in checks_dir.iterdir() if path.is_file() and path.suffix == ".py"
+    )
 
     if any(path.name == "run_evaluator.py" for path in python_scripts):
         python_scripts = [checks_dir / "run_evaluator.py"]
@@ -181,17 +201,38 @@ def structural_check_args(script_path: Path, case_root: Path):
         return ["--case_root", str(case_root)]
     if "--case_dir" in text:
         return ["--case_dir", str(case_root)]
-    if "sys.argv[1]" in text or "Path(sys.argv[1])" in text or "pathlib.Path(sys.argv[1])" in text:
+    if (
+        "sys.argv[1]" in text
+        or "Path(sys.argv[1])" in text
+        or "pathlib.Path(sys.argv[1])" in text
+    ):
         return [str(case_root)]
     return []
 
 
-def run_structural_check(script_path: Path, workspace_root: Path, case_root: Path, timeout_seconds: int):
+def run_structural_check(
+    script_path: Path, workspace_root: Path, case_root: Path, timeout_seconds: int
+):
     """Execute one structural-check script with the best-effort argument convention."""
     if script_path.suffix != ".py":
         raise ValueError(f"Unsupported check script: {script_path}")
-    cmd = [sys.executable, str(script_path), *structural_check_args(script_path, case_root)]
-    return run_command(cmd, workspace_root, timeout_seconds=timeout_seconds)
+    env = os.environ.copy()
+    pythonpath_entries = [str(workspace_root)]
+    existing_pythonpath = env.get("PYTHONPATH")
+    if existing_pythonpath:
+        pythonpath_entries.append(existing_pythonpath)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+    cmd = [
+        sys.executable,
+        str(script_path),
+        *structural_check_args(script_path, case_root),
+    ]
+    return run_command(
+        cmd,
+        workspace_root,
+        timeout_seconds=timeout_seconds,
+        env=env,
+    )
 
 
 def save_summary(summary: dict, generated_root: Path, case_slug: str):
@@ -199,7 +240,9 @@ def save_summary(summary: dict, generated_root: Path, case_slug: str):
     reports_dir = generated_root / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     report_path = reports_dir / f"{case_slug}.json"
-    report_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    report_path.write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     summary["report_path"] = str(report_path)
     return report_path
 
@@ -221,7 +264,7 @@ def discover_ctest_names(build_dir: Path):
 
 def is_case_relevant_ctest(test_name: str) -> bool:
     """Filter out repo-level tests that should not affect one-case evaluation."""
-    return test_name != "nitr_format_check"
+    return test_name not in {"nitr_format_check", "nitr_python_format_check"}
 
 
 def run_ctest_per_test(build_dir: Path, timeout_seconds: int):
@@ -231,7 +274,9 @@ def run_ctest_per_test(build_dir: Path, timeout_seconds: int):
     summary = {
         "discover": discover_result,
         "tests": [],
-        "skipped_tests": [name for name in test_names if not is_case_relevant_ctest(name)],
+        "skipped_tests": [
+            name for name in test_names if not is_case_relevant_ctest(name)
+        ],
         "exit_code": 0,
         "timed_out": False,
     }
@@ -250,12 +295,16 @@ def run_ctest_per_test(build_dir: Path, timeout_seconds: int):
             "-R",
             f"^{test_name}$",
         ]
-        result = run_command(cmd, build_dir, stream_output=True, timeout_seconds=timeout_seconds + 5)
+        result = run_command(
+            cmd, build_dir, stream_output=True, timeout_seconds=timeout_seconds + 5
+        )
         result["test_name"] = test_name
         summary["tests"].append(result)
         if result["exit_code"] != 0:
             summary["exit_code"] = result["exit_code"]
-            summary["timed_out"] = summary["timed_out"] or result.get("timed_out", False)
+            summary["timed_out"] = summary["timed_out"] or result.get(
+                "timed_out", False
+            )
 
     return summary
 
@@ -265,15 +314,77 @@ def main():
     parser = argparse.ArgumentParser(
         description="Build one generated case, run functional tests via CTest, and then run structural checks."
     )
-    parser.add_argument("--generated_root", "-g", required=True, help="Generated root containing cases/<case> and optional evaluator/<case>")
-    parser.add_argument("--case_id", "-c", required=True, help="Three-digit case id, e.g. 018")
-    parser.add_argument("--repo_root", "-r", default=".", help="Repo root or cases root")
-    parser.add_argument("--keep_workspace", action="store_true", help="Keep the temporary workspace directory")
-    parser.add_argument("--workspace_dir", help="Optional workspace directory to use instead of a temp dir")
-    parser.add_argument("--refresh_evaluator", action="store_true", help="Overwrite generated_root/evaluator/<case> with the current repo evaluator before running")
-    parser.add_argument("--build_timeout", type=int, default=300, help="Timeout in seconds for the build step")
-    parser.add_argument("--ctest_timeout", type=int, default=120, help="Timeout in seconds for the functional test step")
-    parser.add_argument("--check_timeout", type=int, default=60, help="Timeout in seconds for each Python structural check")
+    parser.add_argument(
+        "--generated-root",
+        "--generated_root",
+        "-g",
+        dest="generated_root",
+        required=True,
+        help="Generated root containing cases/<case> and optional evaluator/<case>",
+    )
+    parser.add_argument(
+        "--case-id",
+        "--case_id",
+        "-c",
+        dest="case_id",
+        required=True,
+        help="Three-digit case id, e.g. 018",
+    )
+    parser.add_argument(
+        "--repo-root",
+        "--repo_root",
+        "-r",
+        dest="repo_root",
+        default=".",
+        help="Repo root or cases root",
+    )
+    parser.add_argument(
+        "--keep-workspace",
+        "--keep_workspace",
+        dest="keep_workspace",
+        action="store_true",
+        help="Keep the temporary workspace directory",
+    )
+    parser.add_argument(
+        "--workspace-dir",
+        "--workspace_dir",
+        dest="workspace_dir",
+        help="Optional workspace directory to use instead of a temp dir",
+    )
+    parser.add_argument(
+        "--refresh-evaluator",
+        "--refresh_evaluator",
+        dest="refresh_evaluator",
+        action="store_true",
+        help="Overwrite generated_root/evaluator/<case> with the current repo evaluator before running",
+    )
+    parser.add_argument(
+        "--build-timeout",
+        "--build_timeout",
+        dest="build_timeout",
+        type=int,
+        default=300,
+        help="Timeout in seconds for the build step",
+    )
+    parser.add_argument(
+        "--ctest-timeout",
+        "--ctest_timeout",
+        dest="ctest_timeout",
+        type=int,
+        default=120,
+        help="Timeout in seconds for the functional test step",
+    )
+    parser.add_argument(
+        "--check-timeout",
+        "--check_timeout",
+        dest="check_timeout",
+        type=int,
+        default=60,
+        help="Timeout in seconds for each Python structural check",
+    )
+    add_common_runtime_args(
+        parser, default_dockerfile=current_default_dockerfile()
+    )
     args = parser.parse_args()
 
     case_id = args.case_id.zfill(3)
@@ -281,14 +392,64 @@ def main():
     input_root = Path(args.repo_root).resolve()
     cases_root = resolve_cases_root(input_root)
     repo_root = cases_root.parent
+
+    if args.runtime == "docker":
+        if args.keep_workspace and not args.workspace_dir:
+            raise ValueError(
+                "--keep_workspace with --runtime docker requires --workspace_dir so the workspace persists on the host."
+            )
+
+        forwarded_args = [
+            "--generated-root",
+            str(generated_root),
+            "--case-id",
+            args.case_id,
+            "--repo-root",
+            str(repo_root),
+            "--build-timeout",
+            str(args.build_timeout),
+            "--ctest-timeout",
+            str(args.ctest_timeout),
+            "--check-timeout",
+            str(args.check_timeout),
+        ]
+        if args.refresh_evaluator:
+            forwarded_args.append("--refresh-evaluator")
+        if args.keep_workspace:
+            forwarded_args.append("--keep-workspace")
+        if args.workspace_dir:
+            workspace_mount_root = Path(args.workspace_dir).resolve()
+            if not workspace_mount_root.exists():
+                workspace_mount_root = workspace_mount_root.parent
+            forwarded_args.extend(
+                ["--workspace-dir", str(Path(args.workspace_dir).resolve())]
+            )
+        extra_mount_roots = [generated_root]
+        if args.workspace_dir:
+            extra_mount_roots.append(workspace_mount_root)
+        exit_after_docker_run(
+            args=args,
+            repo_root=repo_root,
+            script_path="submit/run_case_evaluator.py",
+            forwarded_args=forwarded_args,
+            path_arg_names={"--generated-root", "--repo-root", "--workspace-dir"},
+            extra_mount_roots=extra_mount_roots,
+        )
+
     case_slug = find_case_slug(cases_root, case_id)
     generated_case_dir = generated_root / "cases" / case_slug
     if not generated_case_dir.is_dir():
-        raise FileNotFoundError(f"Generated case directory not found: {generated_case_dir}")
+        raise FileNotFoundError(
+            f"Generated case directory not found: {generated_case_dir}"
+        )
     if args.refresh_evaluator:
-        generated_evaluator_dir = refresh_generated_evaluator(repo_root, generated_root, case_slug)
+        generated_evaluator_dir = refresh_generated_evaluator(
+            repo_root, generated_root, case_slug
+        )
     else:
-        generated_evaluator_dir = ensure_generated_evaluator(repo_root, generated_root, case_slug)
+        generated_evaluator_dir = ensure_generated_evaluator(
+            repo_root, generated_root, case_slug
+        )
 
     workspace_dir = Path(args.workspace_dir).resolve() if args.workspace_dir else None
     temp_dir = None
@@ -332,12 +493,22 @@ def main():
         summary["configure"] = run_command(configure_cmd, workspace_dir)
         if summary["configure"]["exit_code"] == 0:
             build_cmd = ["cmake", "--build", str(build_dir)]
-            summary["build"] = run_command(build_cmd, workspace_dir, stream_output=True, timeout_seconds=args.build_timeout)
+            summary["build"] = run_command(
+                build_cmd,
+                workspace_dir,
+                stream_output=True,
+                timeout_seconds=args.build_timeout,
+            )
             if summary["build"]["exit_code"] == 0:
                 summary["ctest"] = run_ctest_per_test(build_dir, args.ctest_timeout)
 
         for script_path in discover_structural_checks(evaluator_dir / "checks"):
-            result = run_structural_check(script_path, workspace_dir, case_root, timeout_seconds=args.check_timeout)
+            result = run_structural_check(
+                script_path,
+                workspace_dir,
+                case_root,
+                timeout_seconds=args.check_timeout,
+            )
             result["script"] = str(script_path.relative_to(workspace_dir))
             summary["checks"].append(result)
 

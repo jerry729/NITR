@@ -10,54 +10,66 @@ import subprocess
 from pathlib import Path
 from typing import Iterable, List, Tuple, Optional
 
+from evaluator.shared.check_utils import (
+    case_root_from_script,
+    regex_matches,
+    read_text as shared_read_text,
+    repo_root_from_script,
+    scan_files,
+)
+
 
 # ----------------------------
 # Utilities
 # ----------------------------
+
 
 def die(msg: str, code: int = 1) -> None:
     """Print a fatal error message and exit the evaluator immediately."""
     print(msg, file=sys.stderr)
     sys.exit(code)
 
+
 def case_root() -> Path:
     """Resolve the case directory that this evaluator should inspect."""
-    repo_root = Path(__file__).resolve().parents[3]
-    case_name = Path(__file__).resolve().parents[1].name
-    return repo_root / "cases" / case_name
+    return case_root_from_script(__file__)
+
 
 def repo_root() -> Path:
     """Return the repository root inferred from this evaluator's location."""
-    return Path(__file__).resolve().parents[3]
+    return repo_root_from_script(__file__)
+
 
 def read_text(path: Path) -> str:
     """Read a text file or abort with a descriptive error."""
     try:
-        return path.read_text(encoding="utf-8", errors="replace")
+        return shared_read_text(
+            path,
+            encoding="utf-8",
+            errors="replace",
+            missing_ok=False,
+        )
     except Exception as e:
         die(f"Failed to read {path}: {e}")
 
+
 def list_files(base: Path, exts: Tuple[str, ...]) -> List[Path]:
     """Recursively collect files under a base directory that match the given suffixes."""
-    out: List[Path] = []
-    for p in base.rglob("*"):
-        if p.is_file() and p.suffix in exts:
-            out.append(p)
-    return out
+    return scan_files(base, exts)
+
 
 def run(cmd: List[str]) -> Tuple[int, str, str]:
     """Run a subprocess and return exit code, stdout, and stderr without raising."""
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        proc = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False
+        )
         return proc.returncode, proc.stdout, proc.stderr
     except FileNotFoundError:
         return 127, "", f"Command not found: {cmd[0]}"
     except Exception as e:
         return 1, "", f"Failed to run {cmd}: {e}"
 
-def grep(pattern: re.Pattern, text: str) -> bool:
-    """Return whether a compiled regex matches the provided text."""
-    return bool(pattern.search(text))
 
 def rel(p: Path, root: Path) -> str:
     """Render a path relative to the case root when possible."""
@@ -71,12 +83,16 @@ def rel(p: Path, root: Path) -> str:
 # Checks
 # ----------------------------
 
+
 def check_legacy_not_modified(root: Path) -> None:
     """
     Optional: If you're using git, fail if legacy_monolith.* was modified.
     Safe to skip if git not available.
     """
-    legacy_files = [root / "src" / "legacy_monolith.cc", root / "src" / "legacy_monolith.h"]
+    legacy_files = [
+        root / "src" / "legacy_monolith.cc",
+        root / "src" / "legacy_monolith.h",
+    ]
     if not any(p.exists() for p in legacy_files):
         return
 
@@ -95,6 +111,7 @@ def check_legacy_not_modified(root: Path) -> None:
         if lf.exists() and str(lf.relative_to(root)) in modified:
             die(f"Legacy file must NOT be modified: {lf.relative_to(root)}")
 
+
 def check_no_legacy_includes(root: Path) -> None:
     """
     Enforce: no file outside legacy_monolith.* and evaluator/oracle_main.cc includes legacy_monolith.h
@@ -112,8 +129,9 @@ def check_no_legacy_includes(root: Path) -> None:
         if rp in allowed:
             continue
         txt = read_text(p)
-        if grep(pat, txt):
+        if regex_matches(pat, txt):
             die(f"Forbidden include of legacy_monolith.h in {rp}")
+
 
 def check_no_legacy_symbol_references_in_source(root: Path) -> None:
     """
@@ -124,15 +142,16 @@ def check_no_legacy_symbol_references_in_source(root: Path) -> None:
         "src/legacy_monolith.h",
         "evaluator/oracle_main.cc",
     }
-    pat = re.compile(r'\bRunLegacyMonolith\b')
+    pat = re.compile(r"\bRunLegacyMonolith\b")
 
     for p in list_files(root, (".cc", ".h")):
         rp = rel(p, root).replace("\\", "/")
         if rp in allowed:
             continue
         txt = read_text(p)
-        if grep(pat, txt):
+        if regex_matches(pat, txt):
             die(f"Forbidden reference to RunLegacyMonolith in {rp}")
+
 
 def check_json_restrictions(root: Path) -> None:
     """
@@ -146,16 +165,19 @@ def check_json_restrictions(root: Path) -> None:
     ]
     # Also forbid including io_json.h in estimator/scoring/policy (SRP hard constraint)
     forbid_io_include = re.compile(r'^\s*#\s*include\s*"io_json\.h"\s*$', re.MULTILINE)
-    forbid_json_include = re.compile(r'nlohmann\s*/\s*json|<\s*nlohmann/json\.hpp\s*>|"\s*nlohmann/json\.hpp\s*"')
+    forbid_json_include = re.compile(
+        r'nlohmann\s*/\s*json|<\s*nlohmann/json\.hpp\s*>|"\s*nlohmann/json\.hpp\s*"'
+    )
 
     for p in forbidden_files:
         if not p.exists():
             continue
         txt = read_text(p)
-        if grep(forbid_io_include, txt):
+        if regex_matches(forbid_io_include, txt):
             die(f"Forbidden include io_json.h in {rel(p, root)}")
-        if grep(forbid_json_include, txt):
+        if regex_matches(forbid_json_include, txt):
             die(f"Forbidden JSON usage/include in {rel(p, root)}")
+
 
 def check_policy_dependency_restrictions(root: Path) -> None:
     """
@@ -171,8 +193,11 @@ def check_policy_dependency_restrictions(root: Path) -> None:
         re.compile(r'^\s*#\s*include\s*"estimator\.h"\s*$', re.MULTILINE),
     ]
     for pat in forbid:
-        if grep(pat, txt):
-            die(f"policy.cc must not include estimator/normalize headers: {rel(p, root)}")
+        if regex_matches(pat, txt):
+            die(
+                f"policy.cc must not include estimator/normalize headers: {rel(p, root)}"
+            )
+
 
 def find_binary(root: Path, name: str) -> Path:
     """
@@ -210,6 +235,7 @@ def find_binary(root: Path, name: str) -> Path:
             return c
     die(f"Cannot find binary '{name}' in common locations. Build it first.")
 
+
 def maybe_find_binary(root: Path, name: str) -> Optional[Path]:
     """Find a build artifact if available, but tolerate it being absent."""
     try:
@@ -217,12 +243,14 @@ def maybe_find_binary(root: Path, name: str) -> Optional[Path]:
     except SystemExit:
         return None
 
+
 def symbols_via_nm(bin_path: Path) -> Optional[str]:
     """Try extracting symbols with nm."""
     rc, out, err = run(["nm", "-a", str(bin_path)])
     if rc == 0 and out.strip():
         return out
     return None
+
 
 def symbols_via_objdump(bin_path: Path) -> Optional[str]:
     """Try extracting symbols with objdump."""
@@ -232,6 +260,7 @@ def symbols_via_objdump(bin_path: Path) -> Optional[str]:
         return out
     return None
 
+
 def symbols_via_dumpbin(bin_path: Path) -> Optional[str]:
     """Try extracting symbols with dumpbin on Windows toolchains."""
     # Windows Visual Studio toolchain
@@ -239,6 +268,7 @@ def symbols_via_dumpbin(bin_path: Path) -> Optional[str]:
     if rc == 0 and out.strip():
         return out
     return None
+
 
 def extract_symbols(bin_path: Path) -> str:
     """
@@ -248,7 +278,10 @@ def extract_symbols(bin_path: Path) -> str:
         s = fn(bin_path)
         if s is not None:
             return s
-    die("No symbol tool available (nm/objdump/dumpbin). Cannot enforce symbol isolation.")
+    die(
+        "No symbol tool available (nm/objdump/dumpbin). Cannot enforce symbol isolation."
+    )
+
 
 def check_binary_symbol_isolation(root: Path) -> None:
     """
@@ -269,12 +302,14 @@ def check_binary_symbol_isolation(root: Path) -> None:
         if re.search(pat, sym):
             die(f"Binary isolation failed: '{pat}' found in {cv_bin}")
 
+
 def run_named_check(name: str, fn, *args) -> None:
     """Run one check function and print a PASS banner if it succeeds."""
     fn(*args)
     print(f"PASS {name}")
 
-def main() -> None:
+
+def main() -> int:
     """Run source and binary isolation checks for the SRP case."""
     root = case_root()
 
@@ -286,19 +321,31 @@ def main() -> None:
     # Static / source-level checks
     run_named_check("check_legacy_not_modified", check_legacy_not_modified, root)
     run_named_check("check_no_legacy_includes", check_no_legacy_includes, root)
-    run_named_check("check_no_legacy_symbol_references_in_source", check_no_legacy_symbol_references_in_source, root)
+    run_named_check(
+        "check_no_legacy_symbol_references_in_source",
+        check_no_legacy_symbol_references_in_source,
+        root,
+    )
     run_named_check("check_json_restrictions", check_json_restrictions, root)
-    run_named_check("check_policy_dependency_restrictions", check_policy_dependency_restrictions, root)
+    run_named_check(
+        "check_policy_dependency_restrictions",
+        check_policy_dependency_restrictions,
+        root,
+    )
 
     # Binary-level check (link isolation)
     cv_bin = maybe_find_binary(root, "cv_srp")
     if cv_bin is None:
         print("SKIP check_binary_symbol_isolation (cv_srp was not built)")
         print("OK")
-        return
-    run_named_check("check_binary_symbol_isolation", check_binary_symbol_isolation, root)
+        return 0
+    run_named_check(
+        "check_binary_symbol_isolation", check_binary_symbol_isolation, root
+    )
 
     print("OK")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

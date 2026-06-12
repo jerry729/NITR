@@ -8,34 +8,34 @@ existing console implementation.
 These are semantic, type-relationship-level assertions. There is no
 function-name blacklist; the check verifies the architecture, not syntax.
 """
+
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-CASE_NAME = Path(__file__).resolve().parents[1].name
-SRC_DIR = REPO_ROOT / "cases" / CASE_NAME / "src"
+from evaluator.shared.check_utils import (
+    case_root_from_script,
+    find_class_body,
+    read_text,
+    scan_files,
+    strip_comments,
+)
+
+SRC_DIR = case_root_from_script(__file__) / "src"
 
 
 def read(name: str) -> str:
     p = SRC_DIR / name
-    return p.read_text(encoding="utf-8") if p.exists() else ""
+    return read_text(p)
 
 
 def all_src_headers() -> list[Path]:
-    return sorted(p for p in SRC_DIR.rglob("*.h"))
+    return scan_files(SRC_DIR, (".h",))
 
 
 def all_src_files() -> list[Path]:
-    return sorted(p for p in SRC_DIR.rglob("*") if p.suffix in {".h", ".cc"})
-
-
-def strip_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    text = re.sub(r"//[^\n]*", "", text)
-    return text
+    return scan_files(SRC_DIR, (".h", ".cc"))
 
 
 def count_pure_virtual_methods(class_body: str) -> int:
@@ -76,30 +76,6 @@ def has_virtual_method_matching(class_body: str, name_pattern: str) -> bool:
     return False
 
 
-def find_class_body(source: str, class_name: str) -> str | None:
-    """Return the body of a class declaration, or None if not found."""
-    # Match class declaration up through the matching brace.
-    pattern = re.compile(
-        rf"class\s+{re.escape(class_name)}\b[^{{]*\{{",
-        re.S,
-    )
-    m = pattern.search(source)
-    if not m:
-        return None
-    start = m.end()
-    depth = 1
-    i = start
-    while i < len(source) and depth > 0:
-        if source[i] == "{":
-            depth += 1
-        elif source[i] == "}":
-            depth -= 1
-        i += 1
-    if depth != 0:
-        return None
-    return source[start : i - 1]
-
-
 def main() -> int:
     failures: list[str] = []
 
@@ -134,8 +110,13 @@ def main() -> int:
         # Check for visibility-trigger (Flush, Commit, Sync, etc.)
         # Common names for visibility triggers
         visibility_trigger_names = [
-            r"Flush", r"Commit", r"Sync", r"MakeVisible",
-            r"Publish", r"Drain", r"Write"
+            r"Flush",
+            r"Commit",
+            r"Sync",
+            r"MakeVisible",
+            r"Publish",
+            r"Drain",
+            r"Write",
         ]
         has_visibility_trigger = any(
             has_virtual_method_matching(recorder_body, name)
@@ -196,7 +177,9 @@ def main() -> int:
         bbody = find_class_body(btext, bname) or ""
 
         # Check that Record is overridden
-        has_record_override = re.search(r"\bRecord\s*\([^)]*\)[^;{]*\boverride\b", bbody)
+        has_record_override = re.search(
+            r"\bRecord\s*\([^)]*\)[^;{]*\boverride\b", bbody
+        )
         if not has_record_override:
             failures.append(
                 f"{bpath.name}: {bname} must override Record to provide "
@@ -215,7 +198,9 @@ def main() -> int:
     console_h = read("console_metric_recorder.h")
     console_cc = read("console_metric_recorder.cc")
     console_combined = strip_comments(console_h + "\n" + console_cc)
-    console_body = find_class_body(strip_comments(console_h), "ConsoleMetricRecorder") or ""
+    console_body = (
+        find_class_body(strip_comments(console_h), "ConsoleMetricRecorder") or ""
+    )
 
     # Check that Record is overridden
     has_console_record_override = re.search(
@@ -300,4 +285,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

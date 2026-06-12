@@ -47,6 +47,49 @@ ctest --test-dir build --output-on-failure
 If you change shared tooling or documentation, run the smallest relevant checks
 that prove the change works.
 
+If you change C/C++ source files under `cases/` or `evaluator/`, also run:
+
+```bash
+tools/check_format.sh
+```
+
+Use:
+
+```bash
+tools/format.sh
+```
+
+to apply repository-wide C/C++ formatting with `clang-format`.
+
+If you add or modify evaluator files under `evaluator/`, also run:
+
+```bash
+python3 tools/check_benchmark_consistency.py
+python3 tools/check_evaluator_entrypoints.py
+```
+
+This script catches common public-evaluator wiring mistakes such as tests or
+Python check scripts that exist on disk but are not covered by the repo-local
+CTest path.
+
+The evaluator entrypoint checker confirms that each case can configure with
+`-DNITR_BUILD_EVALUATOR=ON` and still registers at least one case-specific
+CTest entrypoint.
+
+If you change Python tooling or Python evaluator/check scripts, also run:
+
+```bash
+tools/check_python_format.sh
+```
+
+Use:
+
+```bash
+tools/format_python.sh
+```
+
+to apply repository-wide Python formatting with `ruff format`.
+
 ## Pull Requests
 
 - Open a pull request against `main`.

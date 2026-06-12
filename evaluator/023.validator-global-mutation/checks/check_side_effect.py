@@ -1,111 +1,31 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import re
-import sys
 from pathlib import Path
 
+from evaluator.shared.check_utils import (
+    case_root_from_script,
+    include_paths,
+    read_text,
+    sha256,
+    strip_comments_and_strings,
+)
 
-APP_MAIN_EXPECTED = """#include <iostream>
-#include <vector>
-
-#include "grader.h"
-#include "reporter.h"
-#include "stats.h"
-#include "submission.h"
-#include "validator.h"
-
-int main() {
-    using namespace nitr::case023;
-
-    const std::vector<Submission> submissions = {
-        {"alice", "Well-structured solution", false},
-        {"bob", "", false},
-        {"carol", "Late but complete", true},
-        {"dana", "Concise answer", false},
-    };
-
-    Grader grader;
-    Validator validator;
-
-    for (const Submission& submission : submissions) {
-        if (!validator.validate(submission)) {
-            continue;
-        }
-
-        ++total_processed;
-        std::cout << submission.student_id << ": " << grader.Grade(submission) << '\\n';
-    }
-
-    Reporter reporter;
-    std::cout << reporter.Summary() << '\\n';
-    return 0;
+EXPECTED_HASHES = {
+    "app/main.cc": "5455837b4eb544d92bf73a89ee3f77bdb8b8947662a708f5b3ab98c4bc611400",
+    "src/grader.cc": "0a67fa3bcbdf01aa8ac46d16e88b7b51d95fbf1affdca916785a844fcdb8a809",
+    "src/reporter.cc": "40b514c9a0728c7fcd261ca3c0f37f9be598a705c7a7a9d0fe164b258f07d734",
 }
-"""
-
-GRADER_CC_EXPECTED = """#include "grader.h"
-
-#include <algorithm>
-
-namespace nitr::case023 {
-
-int Grader::Grade(const Submission& s) const {
-    const int length_score = static_cast<int>(std::min<std::size_t>(s.content.size(), 100));
-    return length_score;
-}
-
-}  // namespace nitr::case023
-"""
-
-REPORTER_CC_EXPECTED = """#include "reporter.h"
-
-#include <string>
-
-#include "stats.h"
-
-namespace nitr::case023 {
-
-std::string Reporter::Summary() const {
-    return "Processed " + std::to_string(total_processed) + " submissions";
-}
-
-}  // namespace nitr::case023
-"""
-
-
-def read_text(path: Path) -> str:
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
-
-
-def strip_comments_and_strings(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    text = re.sub(r"//.*", "", text)
-    text = re.sub(r'"(?:\\.|[^"\\])*"', '""', text)
-    text = re.sub(r"'(?:\\.|[^'\\])+'", "''", text)
-    return text
-
-
-def include_paths(text: str) -> list[str]:
-    includes: list[str] = []
-    for line in text.splitlines():
-        match = re.match(r'^\s*#\s*include\s*[<"]([^">]+)[">]', line)
-        if match:
-            includes.append(match.group(1))
-    return includes
-
-
-def normalize_text(text: str) -> str:
-    return text.replace("\r\n", "\n").strip() + "\n"
 
 
 def main() -> int:
-    if len(sys.argv) > 1:
-        case_root = Path(sys.argv[1]).resolve()
-    else:
-        repo_root = Path(__file__).resolve().parents[3]
-        case_root = repo_root / "cases" / "023.validator-global-mutation"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--case_root", type=Path, default=case_root_from_script(__file__))
+    args = parser.parse_args()
+
+    case_root = args.case_root.resolve()
 
     src_root = case_root / "src"
     app_root = case_root / "app"
@@ -113,11 +33,6 @@ def main() -> int:
         src_root / "validator.h",
         src_root / "validator.cc",
     ]
-    frozen_files = {
-        app_root / "main.cc": APP_MAIN_EXPECTED,
-        src_root / "grader.cc": GRADER_CC_EXPECTED,
-        src_root / "reporter.cc": REPORTER_CC_EXPECTED,
-    }
     allowed_total_processed_refs = {
         src_root / "stats.h",
         src_root / "stats.cc",
@@ -162,35 +77,37 @@ def main() -> int:
     for path in source_files:
         raw_text = read_text(path)
         if not raw_text:
-            failures.append(f"{path.relative_to(case_root)}: missing or unreadable file.")
+            failures.append(
+                f"{path.relative_to(case_root)}: missing or unreadable file."
+            )
             continue
 
         scanned_text = strip_comments_and_strings(raw_text)
         includes = include_paths(raw_text)
 
-        if (
-            path not in allowed_total_processed_refs
-            and re.search(r"\btotal_processed\b", scanned_text)
+        if path not in allowed_total_processed_refs and re.search(
+            r"\btotal_processed\b", scanned_text
         ):
             failures.append(
                 f"{path.relative_to(case_root)}: total_processed must stay owned by stats/reporter/main only."
             )
 
-        if (
-            path not in allowed_stats_includes
-            and any(include.endswith("stats.h") for include in includes)
+        if path not in allowed_stats_includes and any(
+            include.endswith("stats.h") for include in includes
         ):
             failures.append(
                 f"{path.relative_to(case_root)}: stats.h may only be included by reporter.cc, stats.cc, or app/main.cc."
             )
 
-    for path, expected_text in frozen_files.items():
-        actual_text = read_text(path)
-        if not actual_text:
-            failures.append(f"{path.relative_to(case_root)}: missing required starter file.")
+    for relative_path, expected_hash in EXPECTED_HASHES.items():
+        path = case_root / relative_path
+        if not path.exists():
+            failures.append(
+                f"{path.relative_to(case_root)}: missing required starter file."
+            )
             continue
 
-        if normalize_text(actual_text) != normalize_text(expected_text):
+        if sha256(path) != expected_hash:
             failures.append(
                 f"{path.relative_to(case_root)}: must remain unchanged from the starter code."
             )
@@ -207,9 +124,7 @@ def main() -> int:
         )
         return 1
 
-    print(
-        "Side-effect check passed: Validator remains decoupled from global stats."
-    )
+    print("Side-effect check passed: Validator remains decoupled from global stats.")
     return 0
 
 
