@@ -1,0 +1,134 @@
+{
+  "case_root": "../../.submit-output/chatgpt-api/cases/004.cv-srp",
+  "baseline_case_root": "../../cases/004.cv-srp",
+  "build_dir": "../../build",
+  "modules": [
+    {
+      "module_name": "build",
+      "name": "build_case004_targets",
+      "command": [
+        "cmake",
+        "--build",
+        "{build_dir}",
+        "--target",
+        "cv_srp",
+        "cv_srp_tests",
+        "-j4"
+      ]
+    },
+    {
+      "module_name": "unit_test",
+      "name": "cv_srp_tests",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "{build_dir}",
+        "--output-on-failure",
+        "-R",
+        "^cv_srp_tests$"
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case004_no_legacy_include_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src"
+      ],
+      "suffixes": [
+        ".cc",
+        ".h"
+      ],
+      "exclude_files": [
+        "legacy_monolith.cc",
+        "legacy_monolith.h"
+      ],
+      "rules": [
+        {
+          "id": "no_legacy_monolith_include",
+          "any_patterns": [
+            "^\\s*#\\s*include\\s+\"legacy_monolith\\.h\"\\s*$"
+          ],
+          "message": "Forbidden include of legacy_monolith.h in {location}"
+        },
+        {
+          "id": "no_run_legacy_monolith_reference",
+          "any_patterns": [
+            "\\bRunLegacyMonolith\\b"
+          ],
+          "message": "Forbidden reference to RunLegacyMonolith in {location}"
+        }
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case004_json_restrictions_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/estimator_e.cc",
+        "src/scoring.cc",
+        "src/policy.cc"
+      ],
+      "rules": [
+        {
+          "id": "no_io_json_include_in_core",
+          "any_patterns": [
+            "^\\s*#\\s*include\\s+\"io_json\\.h\"\\s*$"
+          ],
+          "message": "Forbidden include io_json.h in {relative_path}"
+        },
+        {
+          "id": "no_nlohmann_json_in_core",
+          "any_patterns": [
+            "nlohmann\\s*/\\s*json|<\\s*nlohmann/json\\.hpp\\s*>|\"\\s*nlohmann/json\\.hpp\\s*\""
+          ],
+          "message": "Forbidden JSON usage/include in {relative_path}"
+        }
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case004_policy_dependency_restrictions_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/policy.cc"
+      ],
+      "rules": [
+        {
+          "id": "no_normalize_include_in_policy",
+          "any_patterns": [
+            "^\\s*#\\s*include\\s+\"normalize\\.h\"\\s*$"
+          ],
+          "message": "policy.cc must not include estimator/normalize headers: {relative_path}"
+        },
+        {
+          "id": "no_estimator_glob_include_in_policy",
+          "any_patterns": [
+            "^\\s*#\\s*include\\s+\"estimator.*\\.h\"\\s*$"
+          ],
+          "message": "policy.cc must not include estimator/normalize headers: {relative_path}"
+        },
+        {
+          "id": "no_estimator_include_in_policy",
+          "any_patterns": [
+            "^\\s*#\\s*include\\s+\"estimator\\.h\"\\s*$"
+          ],
+          "message": "policy.cc must not include estimator/normalize headers: {relative_path}"
+        }
+      ]
+    },
+    {
+      "module_name": "customized_check",
+      "name": "case004_binary_symbol_isolation_check",
+      "command": [
+        "python3",
+        "{evaluator_root}/checks/check.py",
+        "--case_root",
+        "{case_root}"
+      ],
+      "env": {
+        "PYTHONPATH": "{repo_root}"
+      }
+    }
+  ]
+}

@@ -1,41 +1,28 @@
 #!/usr/bin/env python3
-"""Structural check for case 024: substitutability under interface evolution.
 
-Verifies that the agent evolved the abstract MetricRecorder base to admit
-the new buffered implementation while preserving substitutability for the
-existing console implementation.
+"""Structural check for case 024: class hierarchy substitutability.
 
-These are semantic, type-relationship-level assertions. There is no
-function-name blacklist; the check verifies the architecture, not syntax.
+Keeps the class-shape assertions that current generic modules do not yet
+express well:
+- MetricRecorder base must expose the right virtual surface.
+- A buffered subclass must derive from MetricRecorder.
+- Buffered and console implementations must override Record.
 """
 
-from __future__ import annotations
-
+import argparse
 import re
 from pathlib import Path
 
-from evaluator.shared.check_utils import (
+from evaluator.shared.module.path_checks import (
     case_root_from_script,
-    find_class_body,
     read_text,
     scan_files,
-    strip_comments,
 )
-
-SRC_DIR = case_root_from_script(__file__) / "src"
-
-
-def read(name: str) -> str:
-    p = SRC_DIR / name
-    return read_text(p)
-
-
-def all_src_headers() -> list[Path]:
-    return scan_files(SRC_DIR, (".h",))
-
-
-def all_src_files() -> list[Path]:
-    return scan_files(SRC_DIR, (".h", ".cc"))
+from evaluator.shared.check_output import emit_check_result
+from evaluator.shared.module.source_analysis import (
+    strip_comments,
+    find_class_body,
+)
 
 
 def count_pure_virtual_methods(class_body: str) -> int:
@@ -77,12 +64,24 @@ def has_virtual_method_matching(class_body: str, name_pattern: str) -> bool:
 
 
 def main() -> int:
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--case_root",
+        type=Path,
+        default=case_root_from_script(__file__),
+    )
+    args = parser.parse_args()
+
+    case_root = args.case_root.resolve()
+    src_dir = case_root / "src"
     failures: list[str] = []
 
-    recorder_h = read("metric_recorder.h")
+    recorder_h = read_text(src_dir / "metric_recorder.h")
     if not recorder_h:
-        print("[STRUCTURE FAIL] metric_recorder.h is missing.")
-        return 1
+        return emit_check_result(
+            passed=False, findings=["metric_recorder.h is missing."]
+        )
 
     recorder_h_clean = strip_comments(recorder_h)
     recorder_body = find_class_body(recorder_h_clean, "MetricRecorder")
@@ -142,7 +141,7 @@ def main() -> int:
 
     # Assertion 2: a buffered MetricRecorder subclass must exist.
     buffered_class_match: tuple[Path, str] | None = None
-    for path in all_src_headers():
+    for path in scan_files(src_dir, suffixes=(".h",)):
         text = strip_comments(path.read_text(encoding="utf-8"))
         m = re.search(
             r"class\s+(\w+)\s*:\s*public\s+MetricRecorder\b",
@@ -195,8 +194,8 @@ def main() -> int:
     # visibility-trigger, so we just need to ensure ConsoleMetricRecorder can
     # call it (either by overriding or inheriting). Since C++ inheritance
     # provides this automatically, we only verify that Record is overridden.
-    console_h = read("console_metric_recorder.h")
-    console_cc = read("console_metric_recorder.cc")
+    console_h = read_text(src_dir / "console_metric_recorder.h")
+    console_cc = read_text(src_dir / "console_metric_recorder.cc")
     console_combined = strip_comments(console_h + "\n" + console_cc)
     console_body = (
         find_class_body(strip_comments(console_h), "ConsoleMetricRecorder") or ""
@@ -212,76 +211,7 @@ def main() -> int:
             "Record to provide immediate-write recording logic."
         )
 
-    # Assertion 5: MetricCollector must operate through the abstract
-    # MetricRecorder reference. It must not name any concrete recorder
-    # type in its source files (excluding #include lines, which are
-    # implementation-detail noise that does not constitute a dependency
-    # in the type system).
-    collector_h = read("metric_collector.h")
-    collector_cc = read("metric_collector.cc")
-    collector_combined = strip_comments(collector_h + "\n" + collector_cc)
-    non_include_lines = "\n".join(
-        line
-        for line in collector_combined.splitlines()
-        if not re.match(r"^\s*#\s*include", line)
-    )
-    concrete_types = ["ConsoleMetricRecorder"]
-    if buffered_class_match is not None:
-        concrete_types.append(buffered_class_match[1])
-    for concrete in concrete_types:
-        if re.search(rf"\b{re.escape(concrete)}\b", non_include_lines):
-            failures.append(
-                f"metric_collector.{{h,cc}} references concrete recorder type "
-                f"{concrete!r}. MetricCollector must operate through the "
-                "abstract MetricRecorder reference; the checkpoint operation "
-                "must not be coupled to a specific recorder implementation."
-            )
-
-    # Assertion 6: MetricCollector must not use dynamic_cast to reach a
-    # concrete recorder. The polymorphic visibility-trigger should be
-    # callable directly through the abstract reference.
-    if "dynamic_cast" in collector_combined:
-        failures.append(
-            "metric_collector uses dynamic_cast. The checkpoint operation "
-            "must invoke the polymorphic visibility-trigger directly through "
-            "the abstract MetricRecorder reference, without runtime type "
-            "discovery."
-        )
-
-    # Assertion 7: MetricCollector must not use capability branching
-    # (e.g. if (recorder_.IsBuffered()) { ... }). The SPEC explicitly
-    # lists this as an undesirable direction. The visibility-trigger
-    # should be unconditionally callable on any recorder implementation.
-    capability_patterns = [
-        r"\bIsBuffered\s*\(",
-        r"\bSupportsFlush\s*\(",
-        r"\bCanFlush\s*\(",
-        r"\bHasBuffer\s*\(",
-        r"\bNeedsFlush\s*\(",
-        r"\bRequiresFlush\s*\(",
-        # Also catch conditional calls to flush-like methods
-        r"if\s*\([^)]*\.(Flush|Commit|Sync|MakeVisible|Publish|Drain)\s*\(",
-    ]
-    for pattern in capability_patterns:
-        if re.search(pattern, collector_combined, re.IGNORECASE):
-            failures.append(
-                "metric_collector contains capability branching "
-                f"(pattern: {pattern!r}). The checkpoint operation must "
-                "unconditionally invoke the polymorphic visibility-trigger "
-                "on the abstract recorder reference. Capability predicates "
-                "(e.g. IsBuffered, SupportsFlush) break substitutability "
-                "by making the caller aware of implementation details."
-            )
-            break  # Report once
-
-    if failures:
-        print("Substitutability check failed:")
-        for f in failures:
-            print(f"[STRUCTURE FAIL] {f}")
-        return 1
-
-    print("Substitutability check passed.")
-    return 0
+    return emit_check_result(passed=not failures, findings=failures)
 
 
 if __name__ == "__main__":

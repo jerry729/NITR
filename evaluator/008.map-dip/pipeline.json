@@ -1,0 +1,82 @@
+{
+  "case_root": "../../.submit-output/chatgpt-api/cases/008.map-dip",
+  "baseline_case_root": "../../cases/008.map-dip",
+  "build_dir": "../../build",
+  "modules": [
+    {
+      "module_name": "build",
+      "name": "build_case008_targets",
+      "command": [
+        "cmake",
+        "--build",
+        "{build_dir}",
+        "--target",
+        "test_basic",
+        "case008_plugin_reverse_test",
+        "-j4"
+      ]
+    },
+    {
+      "module_name": "unit_test",
+      "name": "test_basic",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "{build_dir}",
+        "--output-on-failure",
+        "-R",
+        "^test_basic$"
+      ]
+    },
+    {
+      "module_name": "unit_test",
+      "name": "case008_plugin_reverse_test",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "{build_dir}",
+        "--output-on-failure",
+        "-R",
+        "^case008_plugin_reverse_test$"
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case008_structural_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/map_snapshot.cc"
+      ],
+      "rules": [
+        {
+          "id": "no_geometry_provider_knowledge",
+          "any_patterns": [
+            "\\bGeometryProvider\\b"
+          ],
+          "message": "forbidden pattern in {relative_path}: GeometryProvider"
+        },
+        {
+          "id": "no_semantics_provider_knowledge",
+          "any_patterns": [
+            "\\bSemanticsProvider\\b"
+          ],
+          "message": "forbidden pattern in {relative_path}: SemanticsProvider"
+        },
+        {
+          "id": "no_type_string_dispatch",
+          "any_patterns": [
+            "type\\s*==\\s*\\\""
+          ],
+          "message": "forbidden pattern in {relative_path}: type-string dispatch"
+        },
+        {
+          "id": "no_hardcoded_provider_factory",
+          "any_patterns": [
+            "CreateProviderHardcoded"
+          ],
+          "message": "forbidden pattern in {relative_path}: CreateProviderHardcoded"
+        }
+      ]
+    }
+  ]
+}

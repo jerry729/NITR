@@ -3,9 +3,9 @@ Haichao Zhu*, Qian Zhang*, Jiyuan Wang, Zhaorui Yang, and Yuxin Qiu (* indicates
 <br>
 | [arXiv](https://arxiv.org/abs/2603.27745) | [Project Page](https://www.cs.ucr.edu/~qzhang/nitr.html) |
 
-TL;DR: Needle in the Repo (NITR) is a C++ repository-level benchmark for evaluating whether
+TL;DR: Needle in the Repo (NITR) is a repository-level benchmark for evaluating whether
 AI-generated repository edits preserve maintainable structure, not just
-behavioral correctness. It comprises 24 curated C++ repository probes across
+behavioral correctness. It comprises curated repository probes across
 nine maintainability dimensions, pairing natural multi-file change requests
 with hidden functional tests and structural oracles. The benchmark is designed
 to expose cases where an agent produces behaviorally correct code that still
@@ -27,11 +27,34 @@ Latest result matrix: [docs/model_case_pass_matrix.csv](docs/model_case_pass_mat
 
 This repository contains the public benchmark release:
 
-- 24 starter cases under `cases/`
+- starter cases under `cases/`
 - case specifications and design docs under `docs/`
 - public evaluator code under `evaluator/`
 - agent-facing task statements (`TASK.md`, `TASK1.md`, ...)
 - vendored dependencies required to build cases and evaluators
+
+The current suite is predominantly C++, with Python coverage currently
+including:
+
+- `026.inline-filter-entrypoint-reuse-python`
+- `027.active-snapshot-lifecycle-python`
+- `028.validator-global-mutation-python`
+- `029.thermostat-sensor-decoupling-python`
+- `030.session-expiry-testability-python`
+- `031.session-alert-responsibilities-python`
+- `032.metric-recorder-buffered-flush-python`
+- `033.logging-side-effects-python`
+- `034.config-sprawl-python`
+- `035.cache-lifecycle-python`
+- `036.stable-public-api-python`
+- `037.report-export-ocp-python`
+- `038.handover-packet-ownership-boundary-python`
+- `039.reuse-existing-code-python`
+- `040.pricing-ocp-python`
+- `041.ml-lsp-multistep-python`
+- `042.map-dip-python`
+- `043.pipeline-provider-decoupling-python`
+- `044.ranking-explainability-boundary-python`
 
 This repository includes local submission helpers under `submit/` for
 benchmark automation, but it does not include a hosted submission service.
@@ -84,7 +107,7 @@ Configure all cases:
 cmake -S . -B build
 ```
 
-Run the repository-wide C++ formatting check:
+Run the repository-wide C/C++ formatting check:
 
 ```bash
 cmake -S . -B build
@@ -132,6 +155,37 @@ repository. Use the tooling under [`submit/`](submit/README.md) when you want to
 materialize generated submission outputs under `.submit-output/` and evaluate
 those results separately.
 
+The evaluator also supports a pipeline-based entrypoint:
+
+```bash
+python3 evaluator/run_evaluation_pipeline.py evaluator/002.refactor-and-reuse/pipeline.json
+```
+
+This is the current evaluator path for submission-style runs. Each case
+`pipeline.json` declares the ordered evaluation modules to run, such as
+`build`, `unit_test`, `source_analysis`, `baseline_diff`, `required_paths`, and
+`customized_check`.
+
+Python cases still register their functional tests through `CMake` / `CTest`
+so they can participate in the same evaluator flow as C++ cases.
+
+The underlying evaluator CMake targets are still registered through
+`evaluator/CMakeLists.txt` when `-DNITR_BUILD_EVALUATOR=ON` is enabled. That
+file remains the build-target registration layer, while
+`evaluator/run_evaluation_pipeline.py` is the primary orchestration entrypoint.
+
+For local regression coverage against already-materialized submit outputs, see
+[`evaluator/shared/module/testdata/submission_pipeline/README.md`](evaluator/shared/module/testdata/submission_pipeline/README.md).
+
+When evaluating materialized outputs under `.submit-output/`, you can override
+paths from the pipeline config at runtime instead of editing the JSON:
+
+```bash
+python3 evaluator/run_evaluation_pipeline.py \
+  evaluator/008.map-dip/pipeline.json \
+  --override case_root=/abs/path/to/.submit-output/<run>/cases/008.map-dip
+```
+
 ## Running NITR with Different Interfaces
 
 This public repository does not include a hosted submission service. In the
@@ -154,7 +208,8 @@ You can use the benchmark through several interfaces:
 - API workflow: send the selected case directory and its `TASK.md` or
   `TASK1.md`/`TASK2.md`/`TASK3.md` files to your coding agent through an API,
   apply the returned file edits inside this repository, and then run
-  `python3 tools/run_case.py <case_slug> --with-evaluator`.
+  `python3 tools/run_case.py <case_slug> --with-evaluator` or
+  `python3 evaluator/run_evaluation_pipeline.py evaluator/<case_slug>/pipeline.json`.
 - Agent CLI workflow: open this repository in an agentic coding tool, point the
   agent at a specific case, ask it to complete the requested edits in place,
   and then run the same local evaluator command.
@@ -181,30 +236,8 @@ submission tooling and paper-aligned reproduction.
 
 ## Cases
 
-- `001.add-no-callsite-spread`
-- `002.refactor-and-reuse`
-- `003.reuse-existing-code`
-- `004.cv-srp`
-- `005.pricing-ocp`
-- `006.gs-isp`
-- `007.ml-lsp-multistep`
-- `008.map-dip`
-- `009.session-expiry-testability`
-- `010.logging-side-effects`
-- `011.config-sprawl`
-- `012.cache-lifecycle`
-- `013.stable-public-api`
-- `014.report-export-ocp`
-- `015.pipeline-provider-decoupling`
-- `016.device-segment-planner`
-- `017.active-snapshot-lifecycle`
-- `018.seeded-selection-testability`
-- `019.ranking-explainability-boundary`
-- `020.handover-packet-ownership-boundary`
-- `021.inline-filter-entrypoint-reuse`
-- `022.thermostat-sensor-decoupling`
-- `023.validator-global-mutation`
-- `024.metric-recorder-buffered-flush`
+The case list now lives in [docs/cases.md](docs/cases.md).
+It includes the current public suite through `028.validator-global-mutation-python`.
 
 ## Citation
 

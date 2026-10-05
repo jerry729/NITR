@@ -1,14 +1,47 @@
+#!/usr/bin/env python3
+
+"""Check structural format-agnostic boundaries for case 014 report export.
+
+Rule:
+  - report_export_service should avoid markdown-specific implementation details and
+    direct markdown exporter dependencies.
+
+Inputs:
+  - `--case_root` (defaults to script's case directory).
+  - `src/report_export_service.cc`
+  - `src/report_export_service.h`
+  - `src/exporter_factory.cc`
+
+Checks:
+  - Flag markdown mentions in service implementation/header text.
+  - Ensure factory exposes default exporter creation entry point.
+
+Output:
+  - emit_check_result with pass/fail findings.
+"""
+
+import argparse
 from pathlib import Path
-import sys
 
-from evaluator.shared.check_utils import case_root_from_script, read_text
+from evaluator.shared.module.path_checks import case_root_from_script, read_text
+from evaluator.shared.check_output import emit_check_result
 
-ROOT = case_root_from_script(__file__)
-SERVICE_CC = ROOT / "src" / "report_export_service.cc"
-SERVICE_H = ROOT / "src" / "report_export_service.h"
-FACTORY_CC = ROOT / "src" / "exporter_factory.cc"
 
 def main() -> int:
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--case_root",
+        type=Path,
+        default=case_root_from_script(__file__),
+    )
+    args = parser.parse_args()
+    case_root = args.case_root.resolve()
+
+    SERVICE_CC = case_root / "src" / "report_export_service.cc"
+    SERVICE_H = case_root / "src" / "report_export_service.h"
+    FACTORY_CC = case_root / "src" / "exporter_factory.cc"
+
     service_text = read_text(SERVICE_CC, missing_ok=False)
     service_header = read_text(SERVICE_H, missing_ok=False)
     factory_text = read_text(FACTORY_CC, missing_ok=False)
@@ -37,13 +70,7 @@ def main() -> int:
     if "CreateDefaultExporters" not in factory_text:
         problems.append("factory file looks malformed.")
 
-    if problems:
-        for problem in problems:
-            print(problem)
-        return 1
-
-    print("Structural checks passed.")
-    return 0
+    return emit_check_result(passed=not problems, findings=problems)
 
 
 if __name__ == "__main__":

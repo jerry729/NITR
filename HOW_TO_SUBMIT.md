@@ -20,6 +20,7 @@ Single-case and batch submission both use the same backend names accepted by [`s
 - `claude-cli`
 - `gemini-vertex`
 - `gemini-cli`
+- `opencode-cli`
 - `qwen-vertex`
 - `qwen-openapi`
 
@@ -42,7 +43,8 @@ python3 submit/submit_case.py \
 Note:
 
 - `qwen-vertex` is the main exception; it is driven by `endpoint_id` and `endpoint_location` rather than `model_name`
-- the default model values live in [`submit/backends.py`](submit/backends.py)
+- default model values live with each backend implementation and are exposed
+  through [`submit/backends/registry.py`](submit/backends/registry.py)
 
 ## 2. Required environment
 
@@ -87,6 +89,7 @@ Some submit backends require a locally installed CLI tool:
 - `chatgpt-codex` requires the `codex` CLI
 - `claude-cli` requires the `claude` CLI
 - `gemini-cli` requires the `gemini` CLI
+- `opencode-cli` requires the `opencode` CLI
 
 Before using those backends, make sure the corresponding command is available on `PATH`.
 
@@ -96,9 +99,15 @@ Quick checks:
 codex --help
 claude --help
 gemini --help
+opencode --help
 ```
 
 If one of these commands is missing, install and authenticate that CLI first according to its official setup instructions before running `submit_case.py` or `run_batch.sh`.
+
+OpenCode model IDs use the `provider/model` form. Run `opencode models` to see
+the models available through your configured providers. For reproducible runs,
+pass an explicit `--model_name provider/model`; otherwise OpenCode uses its
+configured default.
 
 Examples:
 
@@ -184,9 +193,56 @@ python3 submit/submit_case.py \
   -c 024
 ```
 
+To run the same case multiple times against a stochastic backend, set
+`--submit-count`:
+
+```bash
+python3 submit/submit_case.py \
+  --backend chatgpt-api \
+  -i . \
+  -o .submit-output/chatgpt-api \
+  -c 024 \
+  --submit-count 3
+```
+
+When `--submit-count` is greater than `1`, the tool keeps each attempt in a
+separate subdirectory such as `.submit-output/chatgpt-api/run01/`,
+`.submit-output/chatgpt-api/run02/`, and so on.
+The same `run01/` structure is used when `--submit-count 1`.
+
 You can use the same override pattern with other model-driven backends such as
 `chatgpt-codex`, `claude-vertex`, `claude-cli`, `gemini-vertex`, `gemini-cli`,
-and `qwen-openapi`.
+`opencode-cli`, and `qwen-openapi`.
+
+Example OpenCode run:
+
+```bash
+python3 submit/submit_case.py \
+  --backend opencode-cli \
+  --model_name provider/model \
+  -i . \
+  -o .submit-output/opencode-cli \
+  -c 024
+```
+
+To keep comparisons with the other CLI backends meaningful, NITR runs
+OpenCode in an isolated temporary workspace with only read/search permissions.
+OpenCode returns the normal full-file replacement JSON, and NITR applies the
+changes. Direct edits, shell commands, web access, plugins, skills, MCP, and
+subagents are disabled. `--submit-count` works normally for OpenCode Pass@N
+runs.
+
+For isolation, `opencode-cli` fails closed when a case contains OpenCode config
+or instruction-discovery surfaces: `opencode.json`, `opencode.jsonc`,
+`.opencode/`, `AGENTS.md`, `CLAUDE.md`, or `CONTEXT.md`. These files are not
+passed to OpenCode silently.
+
+Live compatibility was verified on 2026-08-15 with OpenCode `1.18.18` and
+`opencode/deepseek-v4-flash-free`. The permission smoke exposed only `glob`
+and `read`, left the workspace unchanged, and a full case 024 run passed the
+build, lifecycle, and substitutability evaluator checks. The adapter's
+credential-free tests do not claim compatibility with an unrecorded CLI
+version.
 
 For Docker-backed submit runs:
 
@@ -200,11 +256,12 @@ The generated output root will typically contain:
 
 ```text
 .submit-output/<backend-name>/
-|-- cases/
-|-- evaluator/
-|-- responses/
-|-- reports/
-`-- staging/
+`-- run01/
+    |-- cases/
+    |-- evaluator/
+    |-- responses/
+    |-- reports/
+    `-- staging/
 ```
 
 The `responses/` directory may also include sidecar metadata files such as:
@@ -247,6 +304,15 @@ python3 submit/run_case_evaluator.py \
   --docker_build
 ```
 
+If `--generated-root` points at a backend directory containing `runXX/`,
+the evaluator automatically scans all runs for that case and computes:
+
+- `Pass@N`: `1` if at least one of the `N` runs passed
+- `Stability`: `1` if all `N` runs are consistent (all pass or all fail)
+
+Per-run reports remain under each `runXX/reports/`, and the aggregate case
+report is written to `<generated-root>/reports/<case>.json`.
+
 ## 5. Run Batch Submit
 
 Use [`submit/run_batch.sh`](submit/run_batch.sh) in submit mode.
@@ -279,6 +345,16 @@ bash submit/run_batch.sh \
   --cases 001,002,024
 ```
 
+Repeat batch submission multiple times per case:
+
+```bash
+bash submit/run_batch.sh \
+  --mode submit \
+  --backend chatgpt-api \
+  --cases 001,002,024 \
+  --submit-count 3
+```
+
 If `--cases all` is used, the script expands to all case ids currently present under `cases/`.
 
 ## 6. Run Batch Evaluate
@@ -302,6 +378,10 @@ bash submit/run_batch.sh \
   --runtime docker \
   --docker-build
 ```
+
+When batch evaluation targets a backend root with `runXX/`, it also writes
+`<generated-root>/reports/summary.json` containing per-case `Pass@N`,
+`Stability`, and overall average rates.
 
 Run both submit and evaluate in Docker:
 

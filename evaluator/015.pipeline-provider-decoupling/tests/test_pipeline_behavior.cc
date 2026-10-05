@@ -1,7 +1,9 @@
+#include <gtest/gtest.h>
+
 #include "build_pipeline.h"
 #include "test_common.h"
 
-int main() {
+TEST(Case015Pipeline, BaselineBehaviorMatchesFixture) {
   nitr::case015::PipelineConfig config;
   config.enable_policy_enrichment = false;
 
@@ -11,8 +13,5 @@ int main() {
       "evaluator/015.pipeline-provider-decoupling/data/"
       "expected_output_baseline.txt");
 
-  if (actual != expected) {
-    return case015_test::Fail("Baseline pipeline output mismatch.");
-  }
-  return 0;
+  EXPECT_EQ(actual, expected);
 }

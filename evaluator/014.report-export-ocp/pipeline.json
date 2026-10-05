@@ -1,0 +1,97 @@
+{
+  "case_root": "../../.submit-output/chatgpt-api/cases/014.report-export-ocp",
+  "baseline_case_root": "../../cases/014.report-export-ocp",
+  "build_dir": "../../build",
+  "modules": [
+    {
+      "module_name": "build",
+      "name": "build_test_report_export",
+      "command": [
+        "cmake",
+        "--build",
+        "{build_dir}",
+        "--target",
+        "test_report_export",
+        "-j4"
+      ]
+    },
+    {
+      "module_name": "unit_test",
+      "name": "test_report_export",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "{build_dir}",
+        "--output-on-failure",
+        "-R",
+        "^test_report_export$"
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case014_service_format_agnostic_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/report_export_service.cc",
+        "src/report_export_service.h"
+      ],
+      "normalize": "none",
+      "rules": [
+        {
+          "id": "no_markdown_mentions",
+          "any_patterns": [
+            "(?i)markdown"
+          ],
+          "message": "report_export_service should remain format-agnostic and must not mention markdown."
+        },
+        {
+          "id": "no_md_specific_handling",
+          "any_substrings": [
+            "md"
+          ],
+          "message": "report_export_service should not add md-specific handling."
+        },
+        {
+          "id": "no_markdown_exporter_type_dependency",
+          "any_substrings": [
+            "MarkdownReportExporter"
+          ],
+          "message": "report_export_service should not depend directly on markdown exporter implementation."
+        },
+        {
+          "id": "no_markdown_exporter_header_dependency",
+          "any_substrings": [
+            "markdown_report_exporter.h"
+          ],
+          "message": "report_export_service should not depend directly on markdown exporter implementation."
+        },
+        {
+          "id": "no_markdown_exporter_cc_dependency",
+          "any_substrings": [
+            "markdown_report_exporter.cc"
+          ],
+          "message": "report_export_service should not depend directly on markdown exporter implementation."
+        }
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case014_factory_shape_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/exporter_factory.cc"
+      ],
+      "rules": [
+        {
+          "id": "require_create_default_exporters",
+          "not": {
+            "any_substrings": [
+              "CreateDefaultExporters"
+            ]
+          },
+          "message": "factory file looks malformed."
+        }
+      ]
+    }
+  ]
+}

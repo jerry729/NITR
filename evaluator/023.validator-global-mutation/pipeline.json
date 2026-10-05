@@ -1,0 +1,140 @@
+{
+  "case_root": "../../.submit-output/chatgpt-api/cases/023.validator-global-mutation",
+  "baseline_case_root": "../../cases/023.validator-global-mutation",
+  "build_dir": "../../build",
+  "modules": [
+    {
+      "module_name": "build",
+      "name": "build_case023_validator_tests",
+      "command": [
+        "cmake",
+        "--build",
+        "{build_dir}",
+        "--target",
+        "case023_validator_tests",
+        "-j4"
+      ]
+    },
+    {
+      "module_name": "unit_test",
+      "name": "case023_validator_tests",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "{build_dir}",
+        "--output-on-failure",
+        "-R",
+        "^case023_validator_tests$"
+      ]
+    },
+    {
+      "module_name": "baseline_diff",
+      "name": "case023_protected_files_check",
+      "paths": [
+        "app/main.cc",
+        "src/grader.cc",
+        "src/reporter.cc"
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case023_validator_boundary_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/validator.h",
+        "src/validator.cc"
+      ],
+      "normalize": "strip_comments_and_strings",
+      "rules": [
+        {
+          "id": "validator_no_total_processed",
+          "any_patterns": [
+            "\\btotal_processed\\b"
+          ],
+          "message": "{filename}: Validator must not reference total_processed."
+        }
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case023_validator_include_boundary_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/validator.h",
+        "src/validator.cc"
+      ],
+      "rules": [
+        {
+          "id": "validator_no_stats_include",
+          "any_patterns": [
+            "#\\s*include\\s*[<\\\"]([^\\\">]*stats\\.h)[>\\\"]"
+          ],
+          "message": "{filename}: Validator must not include stats.h directly."
+        },
+        {
+          "id": "validator_no_src_relative_include",
+          "any_patterns": [
+            "#\\s*include\\s*[\\\"]src/"
+          ],
+          "message": "{filename}: do not use #include \"src/...\"; keep starter relative include style."
+        }
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case023_total_processed_ownership_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src",
+        "app/main.cc"
+      ],
+      "suffixes": [
+        ".h",
+        ".cc"
+      ],
+      "exclude_files": [
+        "stats.h",
+        "stats.cc",
+        "reporter.cc",
+        "main.cc"
+      ],
+      "normalize": "strip_comments_and_strings",
+      "rules": [
+        {
+          "id": "total_processed_owned_by_limited_files",
+          "any_patterns": [
+            "\\btotal_processed\\b"
+          ],
+          "message": "{relative_path}: total_processed must stay owned by stats/reporter/main only."
+        }
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case023_stats_include_boundary_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src",
+        "app/main.cc"
+      ],
+      "suffixes": [
+        ".h",
+        ".cc"
+      ],
+      "exclude_files": [
+        "stats.cc",
+        "reporter.cc",
+        "main.cc"
+      ],
+      "rules": [
+        {
+          "id": "stats_h_only_in_allowed_files",
+          "any_patterns": [
+            "#\\s*include\\s*[<\\\"]([^\\\">]*stats\\.h)[>\\\"]"
+          ],
+          "message": "{relative_path}: stats.h may only be included by reporter.cc, stats.cc, or app/main.cc."
+        }
+      ]
+    }
+  ]
+}

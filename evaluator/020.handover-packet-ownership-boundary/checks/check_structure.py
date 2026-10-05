@@ -1,30 +1,46 @@
 #!/usr/bin/env python3
 
+"""Detect remaining cross-file handover-packet ownership boundary violations.
+
+Rule:
+  - More than one consumer-side file should not appear to assemble packet content.
+  - Keep the remaining cross-file aggregation check that is less natural in pipeline JSON.
+
+Inputs:
+  - `--case_root` (defaults to script's case root).
+  - Source files under `src/` plus `app/main.cc`.
+
+Behavior:
+  - Scores files against assembly/summary signal patterns and tracker/packet coupling.
+  - Emits structured findings with file classification and code.
+
+Output:
+  - Prints a JSON summary and returns 0/1 via process exit.
+"""
+
+import argparse
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from evaluator.shared.check_utils import case_root_from_script, read_text
+from evaluator.shared.module.path_checks import (
+    case_root_from_script,
+    read_text,
+    scan_files,
+)
+from evaluator.shared.module.source_analysis import (
+    count_matching_patterns,
+    has_any_substring,
+)
+from evaluator.shared.check_output import CHECK_FAILED, CHECK_PASSED
 
-
-ROOT = case_root_from_script(__file__)
-SRC_DIR = ROOT / "src"
-APP_FILE = ROOT / "app" / "main.cc"
 
 CONSUMER_FILES = {
-    SRC_DIR / "handover_packet_preview.cc",
-    SRC_DIR / "handover_packet_preview.h",
-    SRC_DIR / "handover_packet_writer.cc",
-    SRC_DIR / "handover_packet_writer.h",
-    APP_FILE,
-}
-
-DOMAIN_CORE_FILES = {
-    SRC_DIR / "shift_tracker.cc",
-    SRC_DIR / "shift_tracker.h",
-    SRC_DIR / "handover_packet.cc",
-    SRC_DIR / "handover_packet.h",
+    "handover_packet_preview.cc",
+    "handover_packet_preview.h",
+    "handover_packet_writer.cc",
+    "handover_packet_writer.h",
 }
 
 CONSUMER_NAME_HINTS = ("preview", "writer", "render", "output", "main")
@@ -38,36 +54,12 @@ ASSEMBLY_SIGNAL_PATTERNS = [
     re.compile(r"row_number"),
 ]
 
-SUMMARY_SIGNAL_PATTERNS = [
-    re.compile(r"package_count"),
-    re.compile(r"tote_count"),
-    re.compile(r"total_packages"),
-]
-
-TRACKER_PARAM_PATTERN = re.compile(r"ShiftTracker\s*(?:&|\*)")
-PACKET_RETURN_PATTERN = re.compile(r"\bHandoverPacket\b")
-
 
 @dataclass
 class Finding:
     code: str
     path: str
     message: str
-
-
-def count_matches(patterns: list[re.Pattern], text: str) -> int:
-    """Count how many structural signal patterns appear in the text."""
-    return sum(1 for pattern in patterns if pattern.search(text))
-
-
-def has_tracker_param(text: str) -> bool:
-    """Detect APIs that directly accept a ShiftTracker dependency."""
-    return bool(TRACKER_PARAM_PATTERN.search(text))
-
-
-def has_packet_mentions(text: str) -> bool:
-    """Detect whether a file mentions the HandoverPacket domain type."""
-    return bool(PACKET_RETURN_PATTERN.search(text))
 
 
 def is_consumer_side(path: Path) -> bool:
@@ -78,95 +70,42 @@ def is_consumer_side(path: Path) -> bool:
     return any(hint in name for hint in CONSUMER_NAME_HINTS)
 
 
-def find_domain_assembly_candidates(files: list[Path]) -> list[str]:
-    """Find likely domain-side files that own packet assembly responsibilities."""
-    candidates: list[str] = []
-    for path in files:
-        text = read_text(path, missing_ok=False)
-
-        if is_consumer_side(path):
-            continue
-
-        if path in {SRC_DIR / "handover_packet.cc", SRC_DIR / "handover_packet.h"}:
-            if has_tracker_param(text) and has_packet_mentions(text):
-                candidates.append(str(path.relative_to(ROOT)))
-            continue
-
-        if path in {SRC_DIR / "shift_tracker.cc", SRC_DIR / "shift_tracker.h"}:
-            if "HandoverPacket" in text:
-                candidates.append(str(path.relative_to(ROOT)))
-            continue
-
-        if has_tracker_param(text) and has_packet_mentions(text):
-            candidates.append(str(path.relative_to(ROOT)))
-    return candidates
-
-
 def main() -> int:
-    """Report whether packet assembly logic leaked into consumer-side files."""
+    """Report remaining cross-file consumer assembly duplication."""
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--case_root",
+        type=Path,
+        default=case_root_from_script(__file__),
+    )
+    args = parser.parse_args()
+
+    case_root = args.case_root.resolve()
+    src_dir = case_root / "src"
+
+    app_file = case_root / "app" / "main.cc"
+
     findings: list[Finding] = []
-    source_files = sorted(list(SRC_DIR.glob("*.h")) + list(SRC_DIR.glob("*.cc"))) + [
-        APP_FILE
-    ]
+    source_files = scan_files(src_dir, suffixes=(".h", ".cc")) + [app_file]
+
+    consumer_files: list[Path] = [
+        src_dir / consumer_file for consumer_file in CONSUMER_FILES
+    ] + [app_file]
 
     consumer_assembly_sites: list[str] = []
 
     for path in source_files:
         text = read_text(path, missing_ok=False)
-        rel_path = str(path.relative_to(ROOT))
-        assembly_score = count_matches(ASSEMBLY_SIGNAL_PATTERNS, text)
-        summary_score = count_matches(SUMMARY_SIGNAL_PATTERNS, text)
-        tracker_param = has_tracker_param(text)
-        packet_mentions = has_packet_mentions(text)
+        rel_path = str(path.relative_to(case_root))
+        assembly_score = count_matching_patterns(ASSEMBLY_SIGNAL_PATTERNS, text)
 
-        if path in CONSUMER_FILES:
-            if assembly_score >= 2 and (
-                "current_tote" in text or "completed_totes" in text
+        if path in consumer_files:
+            if assembly_score >= 2 and has_any_substring(
+                ["current_tote", "completed_totes"], text
             ):
                 consumer_assembly_sites.append(rel_path)
-                findings.append(
-                    Finding(
-                        code="consumer_assembly_logic",
-                        path=rel_path,
-                        message="consumer-side file inspects tracker state and assembles packet rows",
-                    )
-                )
-            if summary_score >= 2 and ("summary" in text or "total_packages" in text):
-                findings.append(
-                    Finding(
-                        code="consumer_summary_logic",
-                        path=rel_path,
-                        message="consumer-side file computes packet summary from live tracker state",
-                    )
-                )
             continue
-
-        if path in DOMAIN_CORE_FILES:
-            continue
-
-        if tracker_param and packet_mentions and is_consumer_side(path):
-            findings.append(
-                Finding(
-                    code="shared_output_side_helper",
-                    path=rel_path,
-                    message="consumer-side helper accepts ShiftTracker and packet types together",
-                )
-            )
-            if assembly_score >= 2 or summary_score >= 2:
-                findings.append(
-                    Finding(
-                        code="shared_output_side_assembly",
-                        path=rel_path,
-                        message="consumer-side helper appears to assemble packet content from tracker state",
-                    )
-                )
-        elif (
-            tracker_param
-            and packet_mentions
-            and (assembly_score >= 2 or summary_score >= 2)
-        ):
-            # Non-consumer helper under src can be a valid domain-side assembly module.
-            pass
 
     if len(consumer_assembly_sites) >= 2:
         findings.append(
@@ -177,26 +116,15 @@ def main() -> int:
             )
         )
 
-    domain_candidates = find_domain_assembly_candidates(source_files)
-    if not domain_candidates:
-        findings.append(
-            Finding(
-                code="missing_domain_side_packet_api",
-                path="src",
-                message="no domain-side file appears to own packet assembly or expose a packet-producing API",
-            )
-        )
-
     passed = not findings
     summary = {
         "suite": "structural",
         "passed": passed,
         "findings": [finding.__dict__ for finding in findings],
-        "domain_candidates": domain_candidates,
-        "checked_files": [str(path.relative_to(ROOT)) for path in source_files],
+        "checked_files": [str(path.relative_to(case_root)) for path in source_files],
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
-    return 0 if passed else 1
+    return CHECK_PASSED if passed else CHECK_FAILED
 
 
 if __name__ == "__main__":

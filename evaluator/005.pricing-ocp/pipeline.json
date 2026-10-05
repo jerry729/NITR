@@ -1,0 +1,80 @@
+{
+  "case_root": "../../.submit-output/chatgpt-api/cases/005.pricing-ocp",
+  "baseline_case_root": "../../cases/005.pricing-ocp",
+  "build_dir": "../../build",
+  "modules": [
+    {
+      "module_name": "build",
+      "name": "build_test_pricing_ocp",
+      "command": [
+        "cmake",
+        "--build",
+        "{build_dir}",
+        "--target",
+        "test_pricing_ocp",
+        "-j4"
+      ]
+    },
+    {
+      "module_name": "unit_test",
+      "name": "test_pricing_ocp",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "{build_dir}",
+        "--output-on-failure",
+        "-R",
+        "^test_pricing_ocp$"
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "pricing_ocp_structural_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/pricing.cc"
+      ],
+      "normalize": "strip_comments_and_strings",
+      "stop_on_first_match": false,
+      "rules": [
+        {
+          "id": "no_if_on_coupon",
+          "any_patterns": [
+            "\\bif\\s*\\(([^)]*(coupon|coupon_code|couponCode|coupon_type|couponType|promo|promo_code|promoCode)[^)]*)\\)"
+          ],
+          "message": "coupon dispatch branching found in {path}"
+        },
+        {
+          "id": "no_elseif_on_coupon",
+          "any_patterns": [
+            "\\belse\\s+if\\s*\\(([^)]*(coupon|coupon_code|couponCode|coupon_type|couponType|promo|promo_code|promoCode)[^)]*)\\)"
+          ],
+          "message": "coupon dispatch branching found in {path}"
+        },
+        {
+          "id": "no_switch_on_coupon",
+          "any_patterns": [
+            "\\bswitch\\s*\\(([^)]*(coupon|coupon_code|couponCode|coupon_type|couponType|promo|promo_code|promoCode)[^)]*)\\)"
+          ],
+          "message": "coupon dispatch branching found in {path}"
+        },
+        {
+          "id": "no_case_dispatch_in_coupon_context",
+          "all_of": [
+            {
+              "any_patterns": [
+                "(coupon|coupon_code|couponCode|coupon_type|couponType|promo|promo_code|promoCode)"
+              ]
+            },
+            {
+              "any_patterns": [
+                "\\bcase\\s+[^:]+:"
+              ]
+            }
+          ],
+          "message": "coupon dispatch branching found in {path}"
+        }
+      ]
+    }
+  ]
+}

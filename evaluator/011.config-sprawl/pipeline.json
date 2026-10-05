@@ -1,0 +1,49 @@
+{
+  "case_root": "../../.submit-output/chatgpt-api/cases/011.config-sprawl",
+  "baseline_case_root": "../../cases/011.config-sprawl",
+  "build_dir": "../../build",
+  "modules": [
+    {
+      "module_name": "build",
+      "name": "build_case011_tests",
+      "command": [
+        "cmake",
+        "--build",
+        "{build_dir}",
+        "--target",
+        "case011_tests",
+        "-j4"
+      ]
+    },
+    {
+      "module_name": "unit_test",
+      "name": "case011_tests",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "{build_dir}",
+        "--output-on-failure",
+        "-R",
+        "^case011_tests$"
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case011_structural_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/report_renderer.h",
+        "src/report_renderer.cc"
+      ],
+      "rules": [
+        {
+          "id": "no_compact_mode_signature_param",
+          "any_patterns": [
+            "^[^\\n;{}]*\\([^\\n)]*\\bcompact_mode\\b[^\\n)]*\\)"
+          ],
+          "message": "{location}: standalone compact_mode parameter in function signature"
+        }
+      ]
+    }
+  ]
+}

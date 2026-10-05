@@ -1,7 +1,9 @@
+#include <gtest/gtest.h>
+
 #include "build_pipeline.h"
 #include "test_common.h"
 
-int main() {
+TEST(Case015PolicyEnrichment, ProviderSwitching) {
   nitr::case015::PipelineConfig static_config;
   static_config.policy_mode = nitr::case015::PolicyMode::kStatic;
   static_config.enable_policy_enrichment = true;
@@ -19,11 +21,5 @@ int main() {
       static_pipeline.runner.Run(case015_test::SampleEvents());
   const auto file_output =
       file_pipeline.runner.Run(case015_test::SampleEvents());
-
-  if (static_output == file_output) {
-    return case015_test::Fail(
-        "Policy source selection should be configuration-driven once "
-        "enrichment is enabled.");
-  }
-  return 0;
+  EXPECT_NE(static_output, file_output);
 }

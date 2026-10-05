@@ -1,0 +1,87 @@
+{
+  "case_root": "../../.submit-output/chatgpt-api/cases/013.stable-public-api",
+  "baseline_case_root": "../../cases/013.stable-public-api",
+  "build_dir": "../../build",
+  "modules": [
+    {
+      "module_name": "build",
+      "name": "build_test_catalog",
+      "command": [
+        "cmake",
+        "--build",
+        "{build_dir}",
+        "--target",
+        "test_catalog",
+        "-j4"
+      ]
+    },
+    {
+      "module_name": "unit_test",
+      "name": "test_catalog",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "{build_dir}",
+        "--output-on-failure",
+        "-R",
+        "^test_catalog$"
+      ]
+    },
+    {
+      "module_name": "source_analysis",
+      "name": "case013_api_stability_check",
+      "root": "case_root",
+      "scan_roots": [
+        "src/library_catalog.h"
+      ],
+      "rules": [
+        {
+          "id": "forbidden_include_archived",
+          "any_substrings": [
+            "include_archived"
+          ],
+          "message": "Forbidden public API control flag detected: include_archived"
+        },
+        {
+          "id": "forbidden_show_archived",
+          "any_substrings": [
+            "show_archived"
+          ],
+          "message": "Forbidden public API control flag detected: show_archived"
+        },
+        {
+          "id": "forbidden_archived_mode",
+          "any_substrings": [
+            "archived_mode"
+          ],
+          "message": "Forbidden public API control flag detected: archived_mode"
+        },
+        {
+          "id": "forbidden_includeArchived",
+          "any_substrings": [
+            "includeArchived"
+          ],
+          "message": "Forbidden public API control flag detected: includeArchived"
+        },
+        {
+          "id": "require_find_available_titles_signature",
+          "not": {
+            "any_patterns": [
+              "std::vector<std::string>\\s+FindAvailableTitles\\s*\\(\\s*const std::vector<Book>& books,\\s*const std::string& prefix\\s*\\)\\s*const;"
+            ]
+          },
+          "message": "Public API signature changed unexpectedly: FindAvailableTitles signature"
+        },
+        {
+          "id": "require_build_catalog_digest_signature",
+          "not": {
+            "any_patterns": [
+              "std::string\\s+BuildCatalogDigest\\s*\\(\\s*const std::vector<Book>& books\\s*\\)\\s*const;"
+            ]
+          },
+          "message": "Public API signature changed unexpectedly: BuildCatalogDigest signature"
+        }
+      ]
+    }
+  ]
+}

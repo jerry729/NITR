@@ -29,8 +29,10 @@ Current cases:
 - `001 add-no-callsite-spread`
 - `011 config-sprawl`
 - `013 stable-public-api`
+- `034 config-sprawl-python` (**micro**)
+- `036 stable-public-api-python` (**micro**)
 
-Current count: **3**
+Current count: **5**
 
 ---
 
@@ -48,8 +50,10 @@ Current cases:
 - `002 refactor-and-reuse`
 - `003 reuse-exising-code`
 - `021 inline-filter-entrypoint-reuse` (**micro**)
+- `026 inline-filter-entrypoint-reuse-python` (**micro**)
+- `039 reuse-existing-code-python` (**multi-step**)
 
-Current count: **3**
+Current count: **5**
 
 Notes:
 - `021` is the D2 micro case that completes the previously missing D2 coverage slot.
@@ -71,8 +75,10 @@ Current cases:
 - `004 cv-srp`
 - `020 handover-packet-ownership-boundary` (**micro**)
 - `025 session-alert-responsibilities` (**micro**)
+- `031 session-alert-responsibilities-python` (**micro**)
+- `038 handover-packet-ownership-boundary-python` (**micro**)
 
-Current count: **3**
+Current count: **5**
 
 Notes:
 - `020` is the newly added D3 micro case.
@@ -93,8 +99,10 @@ Typical failures:
 Current cases:
 - `005 pricing-ocp`
 - `014 report-export-ocp`
+- `037 report-export-ocp-python` (**micro**)
+- `040 pricing-ocp-python` (**multi-step**)
 
-Current count: **2**
+Current count: **4**
 
 ---
 
@@ -112,8 +120,10 @@ Current cases:
 - `006 gs-isp` (**micro**)
 - `007 ml-lsp` (**upgraded to multi-step**)
 - `024 metric-recorder-buffered-flush` (**micro**)
+- `032 metric-recorder-buffered-flush-python` (**micro**)
+- `041 ml-lsp-multistep-python` (**multi-step**)
 
-Current count: **3**
+Current count: **5**
 
 Notes:
 - `006` remains a micro probe.
@@ -138,8 +148,11 @@ Current cases:
 - `008 map-dip`
 - `015 pipeline-provider-decoupling`
 - `022 thermostat-sensor-decoupling`
+- `029 thermostat-sensor-decoupling-python`
+- `042 map-dip-python` (**micro**)
+- `043 pipeline-provider-decoupling-python` (**multi-step**)
 
-Current count: **3**
+Current count: **6**
 
 ---
 
@@ -156,9 +169,11 @@ Typical failures:
 
 Current cases:
 - `009 session-expiry-testability`
+- `016 device-segment-planner` (**multi-step**)
 - `018 seeded-selection-testability` (**multi-step**)
+- `030 session-expiry-testability-python` (**micro**)
 
-Current count: **2**
+Current count: **4**
 
 ---
 
@@ -175,8 +190,10 @@ Typical failures:
 Current cases:
 - `012 cache-lifecycle`
 - `017 active-snapshot-lifecycle` (**multi-step**)
+- `027 active-snapshot-lifecycle-python` (**multi-step**)
+- `035 cache-lifecycle-python` (**micro**)
 
-Current count: **2**
+Current count: **4**
 
 ---
 
@@ -195,8 +212,11 @@ Current cases:
 - `010 logging-side-effects`
 - `019 ranking-explainability-boundary` (**multi-step**)
 - `023 validator-global-mutation` (**micro**)
+- `028 validator-global-mutation-python` (**micro**)
+- `033 logging-side-effects-python` (**micro**)
+- `044 ranking-explainability-boundary-python` (**multi-step**)
 
-Current count: **3**
+Current count: **6**
 
 Notes:
 - `010` remains the micro side-effect probe.
@@ -234,6 +254,25 @@ Notes:
 | 023 validator-global-mutation | D9 Side-Effect Isolation | micro |
 | 024 metric-recorder-buffered-flush | D5 Interface and Substitutability Discipline | micro |
 | 025 session-alert-responsibilities | D3 Responsibility Decomposition | micro |
+| 026 inline-filter-entrypoint-reuse-python | D2 Reuse and Repo Awareness | micro |
+| 027 active-snapshot-lifecycle-python | D8 State Ownership and Lifecycle | multi-step |
+| 028 validator-global-mutation-python | D9 Side-Effect Isolation | micro |
+| 029 thermostat-sensor-decoupling-python | D6 Dependency Control | micro |
+| 030 session-expiry-testability-python | D7 Testability and Determinism | micro |
+| 031 session-alert-responsibilities-python | D3 Responsibility Decomposition | micro |
+| 032 metric-recorder-buffered-flush-python | D5 Interface and Substitutability Discipline | micro |
+| 033 logging-side-effects-python | D9 Side-Effect Isolation | micro |
+| 034 config-sprawl-python | D1 Change Locality | micro |
+| 035 cache-lifecycle-python | D8 State Ownership and Lifecycle | micro |
+| 036 stable-public-api-python | D1 Change Locality | micro |
+| 037 report-export-ocp-python | D4 Extension Structure | micro |
+| 038 handover-packet-ownership-boundary-python | D3 Responsibility Decomposition | micro |
+| 039 reuse-existing-code-python | D2 Reuse and Repo Awareness | multi-step |
+| 040 pricing-ocp-python | D4 Extension Structure | multi-step |
+| 041 ml-lsp-multistep-python | D5 Interface and Substitutability Discipline | multi-step |
+| 042 map-dip-python | D6 Dependency Control | micro |
+| 043 pipeline-provider-decoupling-python | D6 Dependency Control | multi-step |
+| 044 ranking-explainability-boundary-python | D9 Side-Effect Isolation | multi-step |
 
 
 ---
@@ -242,18 +281,19 @@ Notes:
 
 | Dimension | Count |
 |---|---:|
-| D1 Change Locality | 3 |
-| D2 Reuse and Repo Awareness | 3 |
-| D3 Responsibility Decomposition | 3 |
-| D4 Extension Structure | 2 |
-| D5 Interface and Substitutability Discipline | 3 |
-| D6 Dependency Control | 3 |
-| D7 Testability and Determinism | 3 |
-| D8 State Ownership and Lifecycle | 2 |
-| D9 Side-Effect Isolation | 3 |
+| D1 Change Locality | 5 |
+| D2 Reuse and Repo Awareness | 5 |
+| D3 Responsibility Decomposition | 5 |
+| D4 Extension Structure | 4 |
+| D5 Interface and Substitutability Discipline | 5 |
+| D6 Dependency Control | 6 |
+| D7 Testability and Determinism | 4 |
+| D8 State Ownership and Lifecycle | 4 |
+| D9 Side-Effect Isolation | 6 |
 
-Total cases recorded: **25**
+Total cases recorded: **44**
 
 Notes:
-- Current matrix contents cover cases `001`-`025`.
-- With `016`, `021`, `023`, `024`, and `025` included, D1, D2, D3, D5, D7, and D9 each have three cases; D4 and D8 each have two.
+- Current matrix contents cover cases `001`-`044`.
+- With cases through `044` included, D6 and D9 have six cases; D1, D2, D3, and
+  D5 have five cases; D4, D7, and D8 have four cases.
